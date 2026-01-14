@@ -1,0 +1,28 @@
+[package]
+name = "rooms"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felipe Plets <fsplets@gmail.com>"]
+description = "Terminal UI for managing Git worktrees"
+license = "MIT"
+repository = "https://github.com/felipeplets/rooms"
+keywords = ["git", "worktree", "tui", "terminal"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[profile.release]
+lto = true
+strip = true
