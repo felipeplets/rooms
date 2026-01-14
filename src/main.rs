@@ -1,5 +1,7 @@
 use std::process::ExitCode;
 
+mod git;
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
@@ -21,8 +23,22 @@ fn main() -> ExitCode {
         }
     }
 
+    // Verify we're in a git repository
+    let repo_root = match git::get_repo_root() {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("error: {e}");
+            eprintln!();
+            eprintln!("rooms must be run from within a git repository.");
+            eprintln!("Navigate to a git repository and try again.");
+            return ExitCode::FAILURE;
+        }
+    };
+
     // TODO: Launch TUI
     println!("rooms {} - Git worktree manager", env!("CARGO_PKG_VERSION"));
+    println!("Repository: {}", repo_root.display());
+    println!();
     println!("TUI not yet implemented. Run 'rooms --help' for usage.");
 
     ExitCode::SUCCESS
