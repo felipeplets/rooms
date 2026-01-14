@@ -1,6 +1,8 @@
 use std::process::ExitCode;
 
+mod config;
 mod git;
+mod state;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -35,9 +37,31 @@ fn main() -> ExitCode {
         }
     };
 
+    // Load configuration
+    let config = match config::Config::load_from_repo(&repo_root) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("warning: failed to load config, using defaults: {e}");
+            config::Config::default()
+        }
+    };
+
+    let rooms_dir = config.rooms_path(&repo_root);
+
+    // Load state
+    let rooms_state = match state::RoomsState::load_from_rooms_dir(&rooms_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("warning: failed to load state, starting fresh: {e}");
+            state::RoomsState::default()
+        }
+    };
+
     // TODO: Launch TUI
     println!("rooms {} - Git worktree manager", env!("CARGO_PKG_VERSION"));
     println!("Repository: {}", repo_root.display());
+    println!("Rooms dir:  {}", rooms_dir.display());
+    println!("Rooms:      {}", rooms_state.rooms.len());
     println!();
     println!("TUI not yet implemented. Run 'rooms --help' for usage.");
 
