@@ -213,6 +213,28 @@ impl RoomsState {
     pub fn name_exists(&self, name: &str) -> bool {
         self.rooms.iter().any(|r| r.name == name)
     }
+
+    /// Validate rooms against the filesystem.
+    ///
+    /// Marks rooms as Orphaned if their worktree path doesn't exist.
+    /// Returns the number of rooms that were marked as orphaned.
+    pub fn validate_paths(&mut self) -> usize {
+        let mut orphaned_count = 0;
+
+        for room in &mut self.rooms {
+            if !room.path.exists() && room.status != RoomStatus::Orphaned {
+                room.status = RoomStatus::Orphaned;
+                orphaned_count += 1;
+            }
+        }
+
+        orphaned_count
+    }
+
+    /// Find a room by its path.
+    pub fn find_by_path(&self, path: &Path) -> Option<&Room> {
+        self.rooms.iter().find(|r| r.path == path)
+    }
 }
 
 #[cfg(test)]
@@ -353,5 +375,56 @@ mod tests {
 
         let parsed: Room = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.status, RoomStatus::Creating);
+    }
+
+    #[test]
+    fn test_validate_paths_marks_missing_as_orphaned() {
+        let mut state = RoomsState::default();
+
+        // Add a room with a non-existent path
+        let mut room = Room::new(
+            "missing-room".to_string(),
+            "missing-branch".to_string(),
+            PathBuf::from("/this/path/does/not/exist"),
+        );
+        room.status = RoomStatus::Ready;
+        state.add_room(room);
+
+        // Add a room with an existing path (current directory)
+        let mut existing_room = Room::new(
+            "existing-room".to_string(),
+            "existing-branch".to_string(),
+            std::env::current_dir().unwrap(),
+        );
+        existing_room.status = RoomStatus::Ready;
+        state.add_room(existing_room);
+
+        let orphaned = state.validate_paths();
+
+        assert_eq!(orphaned, 1);
+        assert_eq!(
+            state.find_by_name("missing-room").unwrap().status,
+            RoomStatus::Orphaned
+        );
+        assert_eq!(
+            state.find_by_name("existing-room").unwrap().status,
+            RoomStatus::Ready
+        );
+    }
+
+    #[test]
+    fn test_validate_paths_doesnt_double_count() {
+        let mut state = RoomsState::default();
+
+        let mut room = Room::new(
+            "orphan".to_string(),
+            "orphan".to_string(),
+            PathBuf::from("/nonexistent"),
+        );
+        room.status = RoomStatus::Orphaned; // Already orphaned
+        state.add_room(room);
+
+        let orphaned = state.validate_paths();
+        assert_eq!(orphaned, 0); // Shouldn't count already-orphaned rooms
     }
 }

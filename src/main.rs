@@ -49,7 +49,7 @@ fn main() -> ExitCode {
     let rooms_dir = config.rooms_path(&repo_root);
 
     // Load state
-    let rooms_state = match state::RoomsState::load_from_rooms_dir(&rooms_dir) {
+    let mut rooms_state = match state::RoomsState::load_from_rooms_dir(&rooms_dir) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("warning: failed to load state, starting fresh: {e}");
@@ -57,11 +57,37 @@ fn main() -> ExitCode {
         }
     };
 
+    // Discover git worktrees
+    let worktrees = match git::list_worktrees_from(&repo_root) {
+        Ok(wt) => wt,
+        Err(e) => {
+            eprintln!("warning: failed to list worktrees: {e}");
+            Vec::new()
+        }
+    };
+
+    // Validate room paths (mark missing as orphaned)
+    let orphaned_count = rooms_state.validate_paths();
+    if orphaned_count > 0 {
+        eprintln!("warning: {orphaned_count} room(s) have missing worktree directories");
+    }
+
     // TODO: Launch TUI
     println!("rooms {} - Git worktree manager", env!("CARGO_PKG_VERSION"));
     println!("Repository: {}", repo_root.display());
     println!("Rooms dir:  {}", rooms_dir.display());
+    println!();
+    println!("Worktrees:  {}", worktrees.len());
+    for wt in &worktrees {
+        let branch = wt.branch.as_deref().unwrap_or("(detached)");
+        let main_marker = if wt.is_main { " [main]" } else { "" };
+        println!("  - {}{}: {}", branch, main_marker, wt.path.display());
+    }
+    println!();
     println!("Rooms:      {}", rooms_state.rooms.len());
+    for room in &rooms_state.rooms {
+        println!("  - {} ({:?}): {}", room.name, room.status, room.path.display());
+    }
     println!();
     println!("TUI not yet implemented. Run 'rooms --help' for usage.");
 
