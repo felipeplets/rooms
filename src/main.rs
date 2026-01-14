@@ -3,6 +3,7 @@ use std::process::ExitCode;
 mod config;
 mod git;
 mod state;
+mod ui;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -72,24 +73,13 @@ fn main() -> ExitCode {
         eprintln!("warning: {orphaned_count} room(s) have missing worktree directories");
     }
 
-    // TODO: Launch TUI
-    println!("rooms {} - Git worktree manager", env!("CARGO_PKG_VERSION"));
-    println!("Repository: {}", repo_root.display());
-    println!("Rooms dir:  {}", rooms_dir.display());
-    println!();
-    println!("Worktrees:  {}", worktrees.len());
-    for wt in &worktrees {
-        let branch = wt.branch.as_deref().unwrap_or("(detached)");
-        let main_marker = if wt.is_main { " [main]" } else { "" };
-        println!("  - {}{}: {}", branch, main_marker, wt.path.display());
+    // Launch TUI
+    let mut app = ui::App::new(repo_root, rooms_dir, config, rooms_state, worktrees);
+
+    if let Err(e) = app.run() {
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
     }
-    println!();
-    println!("Rooms:      {}", rooms_state.rooms.len());
-    for room in &rooms_state.rooms {
-        println!("  - {} ({:?}): {}", room.name, room.status, room.path.display());
-    }
-    println!();
-    println!("TUI not yet implemented. Run 'rooms --help' for usage.");
 
     ExitCode::SUCCESS
 }
