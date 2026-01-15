@@ -2,6 +2,7 @@ use std::process::ExitCode;
 
 mod config;
 mod git;
+mod room;
 mod state;
 mod ui;
 

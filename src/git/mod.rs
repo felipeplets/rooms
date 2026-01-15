@@ -1,4 +1,4 @@
-mod command;
+pub mod command;
 mod repo;
 mod worktree;
 

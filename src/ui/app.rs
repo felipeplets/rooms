@@ -18,6 +18,7 @@ use ratatui::Terminal;
 
 use crate::config::Config;
 use crate::git::Worktree;
+use crate::room::{create_room, CreateRoomOptions};
 use crate::state::RoomsState;
 
 use super::help::render_help;
@@ -263,8 +264,7 @@ impl App {
                 self.status_message = Some("Room creation not yet implemented".to_string());
             }
             KeyCode::Char('A') => {
-                // TODO: Silent room creation
-                self.status_message = Some("Quick room creation not yet implemented".to_string());
+                self.create_room_silent();
             }
             KeyCode::Char('d') => {
                 // TODO: Room deletion
@@ -301,5 +301,27 @@ impl App {
     /// Get the currently selected room, if any.
     pub fn selected_room(&self) -> Option<&crate::state::Room> {
         self.state.rooms.get(self.selected_index)
+    }
+
+    /// Create a new room silently (with generated name).
+    fn create_room_silent(&mut self) {
+        let options = CreateRoomOptions::default();
+
+        match create_room(&self.rooms_dir, &mut self.state, options) {
+            Ok(room) => {
+                // Select the new room
+                self.selected_index = self.state.rooms.len().saturating_sub(1);
+
+                // Save state
+                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
+                    self.status_message = Some(format!("Room created but failed to save: {}", e));
+                } else {
+                    self.status_message = Some(format!("Created room: {}", room.name));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to create room: {}", e));
+            }
+        }
     }
 }
