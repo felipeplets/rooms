@@ -1,6 +1,10 @@
 // Allow dead code for now - these utilities will be used in later implementation steps
 #![allow(dead_code)]
 
+mod events;
+
+pub use events::EventLog;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;

@@ -1,11 +1,15 @@
 // Allow dead code for fields that will be used in later implementation steps
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -16,10 +20,13 @@ use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
+use uuid::Uuid;
+
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{create_room, remove_room, CreateRoomOptions, DirtyStatus};
-use crate::state::RoomsState;
+use crate::room::{create_room, remove_room, run_post_create_commands, CreateRoomOptions, DirtyStatus, PostCreateHandle};
+use crate::state::{EventLog, RoomStatus, RoomsState};
+use crate::terminal::PtySession;
 
 use super::confirm::{render_confirm, ConfirmState};
 use super::help::render_help;
@@ -78,6 +85,21 @@ pub struct App {
 
     /// Current confirmation dialog state.
     pub confirm: ConfirmState,
+
+    /// PTY sessions per room (keyed by room UUID).
+    pub sessions: HashMap<Uuid, PtySession>,
+
+    /// Last known terminal size for resize detection.
+    pub last_size: (u16, u16),
+
+    /// Running post-create operations.
+    post_create_handles: Vec<PostCreateHandle>,
+
+    /// Event logger.
+    event_log: EventLog,
+
+    /// Whether to skip post-create commands this session.
+    skip_post_create: bool,
 }
 
 impl App {
@@ -88,7 +110,9 @@ impl App {
         config: Config,
         state: RoomsState,
         worktrees: Vec<Worktree>,
+        skip_post_create: bool,
     ) -> Self {
+        let event_log = EventLog::new(&rooms_dir);
         Self {
             repo_root,
             rooms_dir,
@@ -104,6 +128,11 @@ impl App {
             status_message: None,
             prompt: PromptState::default(),
             confirm: ConfirmState::default(),
+            sessions: HashMap::new(),
+            last_size: (0, 0),
+            post_create_handles: Vec::new(),
+            event_log,
+            skip_post_create,
         }
     }
 
@@ -112,16 +141,23 @@ impl App {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
+
+        // Force a full clear to sync ratatui's internal state with the actual terminal
+        terminal.clear()?;
 
         // Main loop
         let result = self.main_loop(&mut terminal);
 
         // Restore terminal
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
         terminal.show_cursor()?;
 
         result
@@ -129,13 +165,33 @@ impl App {
 
     fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
         loop {
+            // Process PTY output for all sessions
+            for session in self.sessions.values_mut() {
+                session.process_output();
+            }
+
+            // Poll for post-create command completion
+            self.poll_post_create();
+
+            // Update terminal size and resize PTY sessions if needed
+            // This handles both terminal resize and layout changes (e.g., sidebar toggle)
+            let size = terminal.size()?;
+            self.last_size = (size.width, size.height);
+            let (cols, rows) = self.calculate_pty_size();
+            for session in self.sessions.values_mut() {
+                // resize() already checks if dimensions changed and skips if same
+                session.resize(cols, rows);
+            }
+
             // Draw UI
             terminal.draw(|frame| self.render(frame))?;
 
-            // Handle input (with 100ms timeout for responsiveness)
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    self.handle_key(key);
+            // Handle input (with 50ms timeout for PTY responsiveness)
+            if event::poll(Duration::from_millis(50))? {
+                match event::read()? {
+                    Event::Key(key) => self.handle_key(key),
+                    Event::Mouse(mouse) => self.handle_mouse(mouse),
+                    _ => {}
                 }
             }
 
@@ -204,6 +260,34 @@ impl App {
         }
     }
 
+    /// Calculate the PTY size based on current terminal size and sidebar visibility.
+    /// This must match the actual rendered area inside the terminal block (with borders).
+    /// We replicate exactly what render does: calculate_layout() then block.inner().
+    fn calculate_pty_size(&self) -> (u16, u16) {
+        // Replicate the exact area calculation from render
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: self.last_size.0,
+            height: self.last_size.1,
+        };
+        let chunks = self.calculate_layout(area);
+
+        // Get the main scene area (same logic as render())
+        let main_area = match (self.sidebar_visible, self.main_scene_visible) {
+            (true, true) => chunks.get(1).copied().unwrap_or(area),
+            (true, false) => area, // No main scene visible
+            (false, true) => chunks.first().copied().unwrap_or(area),
+            (false, false) => area,
+        };
+
+        // Calculate inner area after block borders (Borders::ALL subtracts 2 from each dimension)
+        let inner_width = main_area.width.saturating_sub(2);
+        let inner_height = main_area.height.saturating_sub(2);
+
+        (inner_width.max(10), inner_height.max(5))
+    }
+
     fn calculate_layout(&self, area: Rect) -> Vec<Rect> {
         match (self.sidebar_visible, self.main_scene_visible) {
             (true, true) => {
@@ -237,7 +321,32 @@ impl App {
             return;
         }
 
-        // Global keys (always work)
+        // When focused on MainScene (PTY), forward most keys to the terminal
+        // Only Esc returns to sidebar, Ctrl+B/T toggle panels
+        if self.focus == Focus::MainScene {
+            match key.code {
+                KeyCode::Esc => {
+                    if self.show_help {
+                        self.show_help = false;
+                    } else {
+                        self.focus = Focus::Sidebar;
+                    }
+                }
+                KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.sidebar_visible = !self.sidebar_visible;
+                }
+                KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.main_scene_visible = !self.main_scene_visible;
+                    if !self.main_scene_visible {
+                        self.focus = Focus::Sidebar;
+                    }
+                }
+                _ => self.handle_main_scene_key(key),
+            }
+            return;
+        }
+
+        // Global keys (when NOT focused on MainScene)
         match key.code {
             KeyCode::Char('q') => {
                 self.should_quit = true;
@@ -265,19 +374,14 @@ impl App {
             KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
-                } else {
-                    self.focus = Focus::Sidebar;
                 }
                 return;
             }
             _ => {}
         }
 
-        // Focus-specific keys
-        match self.focus {
-            Focus::Sidebar => self.handle_sidebar_key(key),
-            Focus::MainScene => self.handle_main_scene_key(key),
-        }
+        // Focus-specific keys (only Sidebar reaches here now)
+        self.handle_sidebar_key(key);
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) {
@@ -339,7 +443,10 @@ impl App {
                 self.select_previous();
             }
             KeyCode::Enter => {
-                if self.main_scene_visible {
+                if self.main_scene_visible && self.selected_room().is_some() {
+                    // Start PTY session if not already running
+                    let (cols, rows) = self.calculate_pty_size();
+                    self.get_or_create_session(cols, rows);
                     self.focus = Focus::MainScene;
                 }
             }
@@ -356,9 +463,72 @@ impl App {
         }
     }
 
-    fn handle_main_scene_key(&mut self, _key: KeyEvent) {
-        // TODO: Forward to PTY when implemented
-        // For now, just show a message
+    fn handle_main_scene_key(&mut self, key: KeyEvent) {
+        // Convert key event to bytes and send to PTY
+        let bytes = match key.code {
+            KeyCode::Char(c) => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    // Ctrl+letter sends ASCII 1-26
+                    let ctrl_char = (c.to_ascii_lowercase() as u8).wrapping_sub(b'a' - 1);
+                    vec![ctrl_char]
+                } else {
+                    let mut buf = [0u8; 4];
+                    c.encode_utf8(&mut buf).as_bytes().to_vec()
+                }
+            }
+            KeyCode::Enter => vec![b'\r'],
+            KeyCode::Backspace => vec![0x7f],
+            KeyCode::Tab => vec![b'\t'],
+            KeyCode::Up => vec![0x1b, b'[', b'A'],
+            KeyCode::Down => vec![0x1b, b'[', b'B'],
+            KeyCode::Right => vec![0x1b, b'[', b'C'],
+            KeyCode::Left => vec![0x1b, b'[', b'D'],
+            KeyCode::Home => vec![0x1b, b'[', b'H'],
+            KeyCode::End => vec![0x1b, b'[', b'F'],
+            KeyCode::PageUp => vec![0x1b, b'[', b'5', b'~'],
+            KeyCode::PageDown => vec![0x1b, b'[', b'6', b'~'],
+            KeyCode::Delete => vec![0x1b, b'[', b'3', b'~'],
+            KeyCode::Insert => vec![0x1b, b'[', b'2', b'~'],
+            KeyCode::F(n) => {
+                match n {
+                    1 => vec![0x1b, b'O', b'P'],
+                    2 => vec![0x1b, b'O', b'Q'],
+                    3 => vec![0x1b, b'O', b'R'],
+                    4 => vec![0x1b, b'O', b'S'],
+                    5 => vec![0x1b, b'[', b'1', b'5', b'~'],
+                    6 => vec![0x1b, b'[', b'1', b'7', b'~'],
+                    7 => vec![0x1b, b'[', b'1', b'8', b'~'],
+                    8 => vec![0x1b, b'[', b'1', b'9', b'~'],
+                    9 => vec![0x1b, b'[', b'2', b'0', b'~'],
+                    10 => vec![0x1b, b'[', b'2', b'1', b'~'],
+                    11 => vec![0x1b, b'[', b'2', b'3', b'~'],
+                    12 => vec![0x1b, b'[', b'2', b'4', b'~'],
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+
+        // Send input to PTY
+        if let Some(session) = self.current_session_mut() {
+            if let Err(e) = session.write(&bytes) {
+                self.status_message = Some(format!("Write error: {}", e));
+            }
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                // TODO: Implement scrollback viewing with vt100
+                // For now, scrolling is handled by the PTY itself
+            }
+            MouseEventKind::ScrollDown => {
+                // TODO: Implement scrollback viewing with vt100
+                // For now, scrolling is handled by the PTY itself
+            }
+            _ => {}
+        }
     }
 
     fn select_next(&mut self) {
@@ -394,6 +564,12 @@ impl App {
                 // Select the new room
                 self.selected_index = self.state.rooms.len().saturating_sub(1);
 
+                // Log the event
+                self.event_log.log_room_created(&room.name);
+
+                // Start post-create commands if configured
+                self.start_post_create(&room.name, room.id, room.path.clone());
+
                 // Save state
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room created but failed to save: {}", e));
@@ -403,6 +579,7 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create room: {}", e));
+                self.event_log.log_error(None, &e.to_string());
             }
         }
     }
@@ -420,6 +597,12 @@ impl App {
                 // Select the new room
                 self.selected_index = self.state.rooms.len().saturating_sub(1);
 
+                // Log the event
+                self.event_log.log_room_created(&room.name);
+
+                // Start post-create commands if configured
+                self.start_post_create(&room.name, room.id, room.path.clone());
+
                 // Save state
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room created but failed to save: {}", e));
@@ -429,7 +612,81 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create room: {}", e));
+                self.event_log.log_error(None, &e.to_string());
             }
+        }
+    }
+
+    /// Start post-create commands for a newly created room.
+    fn start_post_create(&mut self, room_name: &str, room_id: Uuid, room_path: PathBuf) {
+        if self.skip_post_create || self.config.post_create_commands.is_empty() {
+            return;
+        }
+
+        // Update room status
+        if let Some(room) = self.state.rooms.iter_mut().find(|r| r.id == room_id) {
+            room.status = RoomStatus::PostCreateRunning;
+        }
+
+        // Log start
+        self.event_log.log_post_create_started(room_name, self.config.post_create_commands.len());
+
+        // Start background execution
+        let handle = run_post_create_commands(
+            room_id,
+            room_path,
+            self.repo_root.clone(),
+            self.config.post_create_commands.clone(),
+        );
+
+        self.post_create_handles.push(handle);
+
+        // Save state with updated status
+        let _ = self.state.save_to_rooms_dir(&self.rooms_dir);
+    }
+
+    /// Poll for post-create command completion.
+    fn poll_post_create(&mut self) {
+        let mut completed = Vec::new();
+
+        for (i, handle) in self.post_create_handles.iter().enumerate() {
+            if let Some(result) = handle.try_recv() {
+                completed.push((i, result));
+            }
+        }
+
+        // Process completed in reverse order to preserve indices
+        for (i, result) in completed.into_iter().rev() {
+            self.post_create_handles.remove(i);
+
+            // Find the room and get its name for logging
+            let room_name = self.state.rooms.iter()
+                .find(|r| r.id == result.room_id)
+                .map(|r| r.name.clone());
+
+            // Update room status
+            if let Some(room) = self.state.rooms.iter_mut().find(|r| r.id == result.room_id) {
+                if result.success {
+                    room.status = RoomStatus::Ready;
+                    room.last_error = None;
+                    if let Some(name) = &room_name {
+                        self.event_log.log_post_create_completed(name);
+                    }
+                } else {
+                    room.status = RoomStatus::Error;
+                    room.last_error = result.error.clone();
+                    if let Some(name) = &room_name {
+                        self.event_log.log_post_create_failed(name, result.error.as_deref().unwrap_or("unknown error"));
+                    }
+                    self.status_message = Some(format!(
+                        "Post-create failed: {}",
+                        result.error.unwrap_or_else(|| "unknown error".to_string())
+                    ));
+                }
+            }
+
+            // Save updated state
+            let _ = self.state.save_to_rooms_dir(&self.rooms_dir);
         }
     }
 
@@ -490,9 +747,20 @@ impl App {
 
     /// Delete the room with the given name.
     fn delete_room(&mut self, room_name: &str) {
+        // Get room ID before deletion to clean up session
+        let room_id = self.state.find_by_name(room_name).map(|r| r.id);
+
         // Use force=true since we already warned about dirty status
         match remove_room(&mut self.state, room_name, true) {
             Ok(name) => {
+                // Remove PTY session if exists
+                if let Some(id) = room_id {
+                    self.sessions.remove(&id);
+                }
+
+                // Log the event
+                self.event_log.log_room_deleted(&name);
+
                 // Adjust selection if needed
                 if self.selected_index >= self.state.rooms.len() && self.selected_index > 0 {
                     self.selected_index -= 1;
@@ -507,7 +775,43 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to delete room: {}", e));
+                self.event_log.log_error(Some(room_name), &e.to_string());
             }
         }
+    }
+
+    /// Get or create a PTY session for the selected room.
+    pub fn get_or_create_session(&mut self, cols: u16, rows: u16) -> Option<&mut PtySession> {
+        use std::collections::hash_map::Entry;
+
+        let room = self.selected_room()?;
+        let room_id = room.id;
+        let room_path = room.path.clone();
+
+        if let Entry::Vacant(entry) = self.sessions.entry(room_id) {
+            match PtySession::new(cols, rows, &room_path) {
+                Ok(session) => {
+                    entry.insert(session);
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to start shell: {}", e));
+                    return None;
+                }
+            }
+        }
+
+        self.sessions.get_mut(&room_id)
+    }
+
+    /// Get the PTY session for the selected room, if it exists.
+    pub fn current_session(&self) -> Option<&PtySession> {
+        let room = self.selected_room()?;
+        self.sessions.get(&room.id)
+    }
+
+    /// Get the PTY session for the selected room mutably, if it exists.
+    pub fn current_session_mut(&mut self) -> Option<&mut PtySession> {
+        let room_id = self.selected_room()?.id;
+        self.sessions.get_mut(&room_id)
     }
 }

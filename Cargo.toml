@@ -20,6 +20,10 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 anyhow = "1.0"
 rand = "0.9"
+portable-pty = "0.8"
+vt100 = "0.15"
+unicode-width = "0.2"
+dirs = "6.0"
 
 [dev-dependencies]
 tempfile = "3.0"
