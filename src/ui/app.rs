@@ -23,6 +23,7 @@ use crate::state::RoomsState;
 
 use super::help::render_help;
 use super::main_scene::render_main_scene;
+use super::prompt::{render_prompt, PromptState};
 use super::sidebar::render_sidebar;
 
 /// Which panel currently has focus.
@@ -70,6 +71,9 @@ pub struct App {
 
     /// Status message to display.
     pub status_message: Option<String>,
+
+    /// Current prompt state for interactive input.
+    pub prompt: PromptState,
 }
 
 impl App {
@@ -94,6 +98,7 @@ impl App {
             show_help: false,
             should_quit: false,
             status_message: None,
+            prompt: PromptState::default(),
         }
     }
 
@@ -142,6 +147,12 @@ impl App {
         // If help is shown, render it as overlay
         if self.show_help {
             render_help(frame, area);
+            return;
+        }
+
+        // If prompt is active, render it as overlay
+        if self.prompt.is_active() {
+            render_prompt(frame, area, &self.prompt);
             return;
         }
 
@@ -203,6 +214,12 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        // Handle prompt input first if active
+        if self.prompt.is_active() {
+            self.handle_prompt_key(key);
+            return;
+        }
+
         // Global keys (always work)
         match key.code {
             KeyCode::Char('q') => {
@@ -246,6 +263,56 @@ impl App {
         }
     }
 
+    fn handle_prompt_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.prompt.cancel();
+            }
+            KeyCode::Enter => {
+                if let Some((room_name, branch_name)) = self.prompt.advance() {
+                    // Prompt complete, create the room
+                    self.create_room_interactive(room_name, branch_name);
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.backspace();
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.delete();
+                }
+            }
+            KeyCode::Left => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.move_left();
+                }
+            }
+            KeyCode::Right => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.move_right();
+                }
+            }
+            KeyCode::Home => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.move_start();
+                }
+            }
+            KeyCode::End => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.move_end();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(input) = self.prompt.current_input() {
+                    input.insert(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn handle_sidebar_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
@@ -260,8 +327,7 @@ impl App {
                 }
             }
             KeyCode::Char('a') => {
-                // TODO: Interactive room creation
-                self.status_message = Some("Room creation not yet implemented".to_string());
+                self.prompt = PromptState::start_room_creation();
             }
             KeyCode::Char('A') => {
                 self.create_room_silent();
@@ -306,6 +372,32 @@ impl App {
     /// Create a new room silently (with generated name).
     fn create_room_silent(&mut self) {
         let options = CreateRoomOptions::default();
+
+        match create_room(&self.rooms_dir, &mut self.state, options) {
+            Ok(room) => {
+                // Select the new room
+                self.selected_index = self.state.rooms.len().saturating_sub(1);
+
+                // Save state
+                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
+                    self.status_message = Some(format!("Room created but failed to save: {}", e));
+                } else {
+                    self.status_message = Some(format!("Created room: {}", room.name));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to create room: {}", e));
+            }
+        }
+    }
+
+    /// Create a new room with user-provided name and branch.
+    fn create_room_interactive(&mut self, room_name: Option<String>, branch_name: Option<String>) {
+        let options = CreateRoomOptions {
+            name: room_name,
+            branch: branch_name,
+            ..Default::default()
+        };
 
         match create_room(&self.rooms_dir, &mut self.state, options) {
             Ok(room) => {
