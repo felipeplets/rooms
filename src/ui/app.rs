@@ -18,9 +18,10 @@ use ratatui::Terminal;
 
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{create_room, CreateRoomOptions};
+use crate::room::{create_room, remove_room, CreateRoomOptions, DirtyStatus};
 use crate::state::RoomsState;
 
+use super::confirm::{render_confirm, ConfirmState};
 use super::help::render_help;
 use super::main_scene::render_main_scene;
 use super::prompt::{render_prompt, PromptState};
@@ -74,6 +75,9 @@ pub struct App {
 
     /// Current prompt state for interactive input.
     pub prompt: PromptState,
+
+    /// Current confirmation dialog state.
+    pub confirm: ConfirmState,
 }
 
 impl App {
@@ -99,6 +103,7 @@ impl App {
             should_quit: false,
             status_message: None,
             prompt: PromptState::default(),
+            confirm: ConfirmState::default(),
         }
     }
 
@@ -153,6 +158,12 @@ impl App {
         // If prompt is active, render it as overlay
         if self.prompt.is_active() {
             render_prompt(frame, area, &self.prompt);
+            return;
+        }
+
+        // If confirmation dialog is active, render it as overlay
+        if self.confirm.is_active() {
+            render_confirm(frame, area, &self.confirm);
             return;
         }
 
@@ -214,7 +225,13 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        // Handle prompt input first if active
+        // Handle confirmation dialog first if active
+        if self.confirm.is_active() {
+            self.handle_confirm_key(key);
+            return;
+        }
+
+        // Handle prompt input if active
         if self.prompt.is_active() {
             self.handle_prompt_key(key);
             return;
@@ -333,8 +350,7 @@ impl App {
                 self.create_room_silent();
             }
             KeyCode::Char('d') => {
-                // TODO: Room deletion
-                self.status_message = Some("Room deletion not yet implemented".to_string());
+                self.start_room_deletion();
             }
             _ => {}
         }
@@ -413,6 +429,84 @@ impl App {
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create room: {}", e));
+            }
+        }
+    }
+
+    fn handle_confirm_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.confirm.cancel();
+            }
+            KeyCode::Enter => {
+                if let Some(room_name) = self.confirm.confirm() {
+                    self.delete_room(&room_name);
+                }
+            }
+            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::Char('h') | KeyCode::Char('l') => {
+                self.confirm.toggle_selection();
+            }
+            KeyCode::Char('y') => {
+                // Quick confirm with 'y'
+                if let ConfirmState::DeleteRoom { room_name, .. } = &self.confirm {
+                    let name = room_name.clone();
+                    self.confirm.cancel();
+                    self.delete_room(&name);
+                }
+            }
+            KeyCode::Char('n') => {
+                // Quick cancel with 'n'
+                self.confirm.cancel();
+            }
+            _ => {}
+        }
+    }
+
+    /// Start the room deletion flow.
+    fn start_room_deletion(&mut self) {
+        let room = match self.selected_room() {
+            Some(r) => r,
+            None => {
+                self.status_message = Some("No room selected".to_string());
+                return;
+            }
+        };
+
+        let room_name = room.name.clone();
+        let room_path = room.path.to_string_lossy().to_string();
+        let branch = room.branch.clone();
+
+        // Check dirty status
+        let dirty_status = match DirtyStatus::check(&room.path) {
+            Ok(status) => Some(status),
+            Err(e) => {
+                self.status_message = Some(format!("Warning: couldn't check status: {}", e));
+                None
+            }
+        };
+
+        self.confirm = ConfirmState::start_delete(room_name, room_path, branch, dirty_status);
+    }
+
+    /// Delete the room with the given name.
+    fn delete_room(&mut self, room_name: &str) {
+        // Use force=true since we already warned about dirty status
+        match remove_room(&mut self.state, room_name, true) {
+            Ok(name) => {
+                // Adjust selection if needed
+                if self.selected_index >= self.state.rooms.len() && self.selected_index > 0 {
+                    self.selected_index -= 1;
+                }
+
+                // Save state
+                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
+                    self.status_message = Some(format!("Room deleted but failed to save: {}", e));
+                } else {
+                    self.status_message = Some(format!("Deleted room: {}", name));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to delete room: {}", e));
             }
         }
     }
