@@ -5,24 +5,18 @@ use rand::Rng;
 
 /// Adjectives for room name generation.
 const ADJECTIVES: &[&str] = &[
-    "quick", "lazy", "happy", "calm", "bold",
-    "bright", "cool", "warm", "swift", "keen",
-    "fresh", "crisp", "gentle", "vivid", "steady",
-    "clever", "witty", "merry", "lively", "peaceful",
-    "cosmic", "lunar", "solar", "stellar", "amber",
-    "azure", "coral", "golden", "silver", "emerald",
-    "rustic", "modern", "classic", "noble", "humble",
+    "quick", "lazy", "happy", "calm", "bold", "bright", "cool", "warm", "swift", "keen", "fresh",
+    "crisp", "gentle", "vivid", "steady", "clever", "witty", "merry", "lively", "peaceful",
+    "cosmic", "lunar", "solar", "stellar", "amber", "azure", "coral", "golden", "silver",
+    "emerald", "rustic", "modern", "classic", "noble", "humble",
 ];
 
 /// Nouns for room name generation.
 const NOUNS: &[&str] = &[
-    "fox", "owl", "bear", "wolf", "hawk",
-    "deer", "hare", "seal", "crow", "swan",
-    "oak", "pine", "elm", "maple", "cedar",
-    "river", "stream", "lake", "pond", "brook",
-    "peak", "ridge", "vale", "grove", "meadow",
-    "stone", "crystal", "ember", "frost", "breeze",
-    "dawn", "dusk", "noon", "tide", "wave",
+    "fox", "owl", "bear", "wolf", "hawk", "deer", "hare", "seal", "crow", "swan", "oak", "pine",
+    "elm", "maple", "cedar", "river", "stream", "lake", "pond", "brook", "peak", "ridge", "vale",
+    "grove", "meadow", "stone", "crystal", "ember", "frost", "breeze", "dawn", "dusk", "noon",
+    "tide", "wave",
 ];
 
 /// Generate a unique room name.
@@ -87,7 +81,10 @@ pub fn validate_room_name(name: &str) -> Result<(), &'static str> {
         return Err("name cannot start or end with a hyphen");
     }
 
-    if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         return Err("name can only contain lowercase letters, digits, and hyphens");
     }
 
@@ -99,13 +96,7 @@ pub fn sanitize_room_name(name: &str) -> String {
     let sanitized: String = name
         .to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
 
     // Remove leading/trailing hyphens and collapse multiple hyphens
@@ -150,7 +141,9 @@ mod tests {
         let name = generate_room_name();
 
         // Should be lowercase with hyphens
-        assert!(name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
+        assert!(name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
 
         // Should have format: word-word-xxxx
         let parts: Vec<&str> = name.split('-').collect();

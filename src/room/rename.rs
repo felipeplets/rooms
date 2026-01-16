@@ -73,7 +73,11 @@ pub fn rename_room(
 
     // Move the worktree using git (must be run from repo root)
     let result = GitCommand::new("worktree")
-        .args(&["move", &old_path.to_string_lossy(), &new_path.to_string_lossy()])
+        .args(&[
+            "move",
+            &old_path.to_string_lossy(),
+            &new_path.to_string_lossy(),
+        ])
         .current_dir(repo_root)
         .run()
         .map_err(|e| RenameRoomError::WorktreeMove(e.to_string()))?;
@@ -211,13 +215,21 @@ mod tests {
         // Create a worktree
         let old_path = rooms_dir.join("old-name");
         Command::new("git")
-            .args(["worktree", "add", "-b", "old-name", &old_path.to_string_lossy()])
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "old-name",
+                &old_path.to_string_lossy(),
+            ])
             .current_dir(&repo_path)
             .output()
             .unwrap();
 
         let mut state = RoomsState::default();
-        state.rooms.push(create_test_room("old-name", old_path.clone()));
+        state
+            .rooms
+            .push(create_test_room("old-name", old_path.clone()));
 
         // Rename the room
         let result = rename_room(&repo_path, &rooms_dir, &mut state, "old-name", "new-name");
@@ -248,7 +260,13 @@ mod tests {
         // Create a worktree
         let old_path = rooms_dir.join("old-name");
         Command::new("git")
-            .args(["worktree", "add", "-b", "old-name", &old_path.to_string_lossy()])
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "old-name",
+                &old_path.to_string_lossy(),
+            ])
             .current_dir(&repo_path)
             .output()
             .unwrap();

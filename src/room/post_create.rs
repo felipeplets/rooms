@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::config::{PostCreateCommand, RunIn};
 
 /// Result of a single post-create command execution.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CommandResult {
     /// Name of the command that was run.
@@ -21,6 +22,7 @@ pub struct CommandResult {
 }
 
 /// Final result of all post-create commands for a room.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PostCreateResult {
     /// The room ID this result is for.
@@ -36,6 +38,7 @@ pub struct PostCreateResult {
 /// A handle to a running post-create operation.
 pub struct PostCreateHandle {
     /// Room ID this operation is for.
+    #[allow(dead_code)]
     pub room_id: Uuid,
     /// Receiver for the final result.
     receiver: Receiver<PostCreateResult>,

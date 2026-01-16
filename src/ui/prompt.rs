@@ -181,7 +181,9 @@ pub fn render_prompt(frame: &mut Frame, area: Rect, prompt: &PromptState) {
     let (title, hint, input) = match prompt {
         PromptState::None => return,
         PromptState::RoomName(input) => ("Create Room - Name", "Enter room name:", input),
-        PromptState::BranchName { input, .. } => ("Create Room - Branch", "Enter branch name:", input),
+        PromptState::BranchName { input, .. } => {
+            ("Create Room - Branch", "Enter branch name:", input)
+        }
         PromptState::RenameRoom { input, .. } => ("Rename Room", "Enter new name:", input),
     };
 
@@ -224,8 +226,7 @@ pub fn render_prompt(frame: &mut Frame, area: Rect, prompt: &PromptState) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
-    let input_paragraph = Paragraph::new(Line::from(display_value))
-        .block(input_block);
+    let input_paragraph = Paragraph::new(Line::from(display_value)).block(input_block);
     frame.render_widget(input_paragraph, chunks[1]);
 
     // Set cursor position

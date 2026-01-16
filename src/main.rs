@@ -96,7 +96,14 @@ fn main() -> ExitCode {
     }
 
     // Launch TUI
-    let mut app = ui::App::new(repo_root, rooms_dir, config, rooms_state, worktrees, skip_post_create);
+    let mut app = ui::App::new(
+        repo_root,
+        rooms_dir,
+        config,
+        rooms_state,
+        worktrees,
+        skip_post_create,
+    );
 
     if let Err(e) = app.run() {
         eprintln!("error: {e}");

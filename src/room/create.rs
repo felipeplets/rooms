@@ -62,7 +62,10 @@ pub fn create_room(
     };
 
     // Determine branch name (default to room name)
-    let branch = options.branch.map(|b| sanitize_room_name(&b)).unwrap_or_else(|| name.clone());
+    let branch = options
+        .branch
+        .map(|b| sanitize_room_name(&b))
+        .unwrap_or_else(|| name.clone());
 
     // Determine worktree path
     let worktree_path = rooms_dir.join(&name);
@@ -89,16 +92,12 @@ pub fn create_room(
     } else {
         // Create new branch from base (or HEAD)
         match &options.base_branch {
-            Some(base) => {
-                GitCommand::new("worktree")
-                    .args(&["add", "-b", &branch, &worktree_path_str, base])
-                    .run()
-            }
-            None => {
-                GitCommand::new("worktree")
-                    .args(&["add", "-b", &branch, &worktree_path_str])
-                    .run()
-            }
+            Some(base) => GitCommand::new("worktree")
+                .args(&["add", "-b", &branch, &worktree_path_str, base])
+                .run(),
+            None => GitCommand::new("worktree")
+                .args(&["add", "-b", &branch, &worktree_path_str])
+                .run(),
         }
     };
 
