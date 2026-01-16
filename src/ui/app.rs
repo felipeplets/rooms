@@ -24,10 +24,7 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{
-    create_room, remove_room, run_post_create_commands, CreateRoomOptions, DirtyStatus,
-    PostCreateHandle,
-};
+use crate::room::{create_room, remove_room, rename_room, run_post_create_commands, CreateRoomOptions, DirtyStatus, PostCreateHandle};
 use crate::state::{EventLog, RoomStatus, RoomsState};
 use crate::terminal::PtySession;
 
@@ -397,6 +394,15 @@ impl App {
                 self.prompt.cancel();
             }
             KeyCode::Enter => {
+                // Handle RenameRoom separately (single-step prompt)
+                if let PromptState::RenameRoom { current_name, input } = &self.prompt {
+                    let old_name = current_name.clone();
+                    let new_name = input.value.clone();
+                    self.prompt = PromptState::None;
+                    self.apply_room_rename(&old_name, &new_name);
+                    return;
+                }
+
                 if let Some((room_name, branch_name)) = self.prompt.advance() {
                     // Prompt complete, create the room
                     self.create_room_interactive(room_name, branch_name);
@@ -465,6 +471,9 @@ impl App {
             }
             KeyCode::Char('d') => {
                 self.start_room_deletion();
+            }
+            KeyCode::Char('r') => {
+                self.start_room_rename();
             }
             _ => {}
         }
@@ -792,6 +801,55 @@ impl App {
             Err(e) => {
                 self.status_message = Some(format!("Failed to delete room: {}", e));
                 self.event_log.log_error(Some(room_name), &e.to_string());
+            }
+        }
+    }
+
+    /// Start the room rename flow.
+    fn start_room_rename(&mut self) {
+        let room = match self.selected_room() {
+            Some(r) => r,
+            None => {
+                self.status_message = Some("No room selected".to_string());
+                return;
+            }
+        };
+
+        let current_name = room.name.clone();
+        self.prompt = PromptState::start_room_rename(current_name);
+    }
+
+    /// Apply a room rename.
+    fn apply_room_rename(&mut self, old_name: &str, new_name: &str) {
+        // Skip if new name is empty
+        if new_name.is_empty() {
+            self.status_message = Some("Rename cancelled: name cannot be empty".to_string());
+            return;
+        }
+
+        // Get room ID before rename to clean up session afterward
+        let room_id = self.state.find_by_name(old_name).map(|r| r.id);
+
+        match rename_room(&self.repo_root, &self.rooms_dir, &mut self.state, old_name, new_name) {
+            Ok(_) => {
+                // Remove PTY session since the working directory changed
+                if let Some(id) = room_id {
+                    self.sessions.remove(&id);
+                }
+
+                // Log the event
+                self.event_log.log_room_renamed(old_name, new_name);
+
+                // Save state
+                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
+                    self.status_message = Some(format!("Room renamed but failed to save: {}", e));
+                } else {
+                    self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to rename room: {}", e));
+                self.event_log.log_error(Some(old_name), &e.to_string());
             }
         }
     }
