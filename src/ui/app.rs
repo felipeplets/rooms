@@ -24,7 +24,10 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{create_room, remove_room, rename_room, run_post_create_commands, CreateRoomOptions, DirtyStatus, PostCreateHandle};
+use crate::room::{
+    create_room, remove_room, rename_room, run_post_create_commands, CreateRoomOptions,
+    DirtyStatus, PostCreateHandle,
+};
 use crate::state::{EventLog, RoomStatus, RoomsState};
 use crate::terminal::PtySession;
 
@@ -395,7 +398,11 @@ impl App {
             }
             KeyCode::Enter => {
                 // Handle RenameRoom separately (single-step prompt)
-                if let PromptState::RenameRoom { current_name, input } = &self.prompt {
+                if let PromptState::RenameRoom {
+                    current_name,
+                    input,
+                } = &self.prompt
+                {
                     let old_name = current_name.clone();
                     let new_name = input.value.clone();
                     self.prompt = PromptState::None;
@@ -830,7 +837,13 @@ impl App {
         // Get room ID before rename to clean up session afterward
         let room_id = self.state.find_by_name(old_name).map(|r| r.id);
 
-        match rename_room(&self.repo_root, &self.rooms_dir, &mut self.state, old_name, new_name) {
+        match rename_room(
+            &self.repo_root,
+            &self.rooms_dir,
+            &mut self.state,
+            old_name,
+            new_name,
+        ) {
             Ok(_) => {
                 // Remove PTY session since the working directory changed
                 if let Some(id) = room_id {
