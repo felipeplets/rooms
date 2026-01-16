@@ -91,9 +91,7 @@ fn parse_porcelain_output(output: &str) -> Vec<Worktree> {
             current_head = Some(sha.to_string());
         } else if let Some(branch_ref) = line.strip_prefix("branch ") {
             // Strip refs/heads/ prefix
-            let branch = branch_ref
-                .strip_prefix("refs/heads/")
-                .unwrap_or(branch_ref);
+            let branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
             current_branch = Some(branch.to_string());
         }
         // "detached" line means no branch, which is the default None

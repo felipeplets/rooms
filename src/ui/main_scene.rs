@@ -113,10 +113,7 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                         let fg = vt100_color_to_ratatui(cell.fgcolor(), true);
                         let bg = vt100_color_to_ratatui(cell.bgcolor(), false);
 
-                        buf[(buf_x, buf_y)]
-                            .set_char(c)
-                            .set_fg(fg)
-                            .set_bg(bg);
+                        buf[(buf_x, buf_y)].set_char(c).set_fg(fg).set_bg(bg);
                     } else {
                         buf[(buf_x, buf_y)]
                             .set_char(' ')

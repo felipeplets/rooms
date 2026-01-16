@@ -24,7 +24,10 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{create_room, remove_room, run_post_create_commands, CreateRoomOptions, DirtyStatus, PostCreateHandle};
+use crate::room::{
+    create_room, remove_room, run_post_create_commands, CreateRoomOptions, DirtyStatus,
+    PostCreateHandle,
+};
 use crate::state::{EventLog, RoomStatus, RoomsState};
 use crate::terminal::PtySession;
 
@@ -163,7 +166,10 @@ impl App {
         result
     }
 
-    fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    fn main_loop(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> io::Result<()> {
         loop {
             // Process PTY output for all sessions
             for session in self.sessions.values_mut() {
@@ -240,9 +246,10 @@ impl App {
             }
             (false, false) => {
                 // Show minimal status when both panels hidden
-                let msg = Paragraph::new("Press Ctrl+B for sidebar, Ctrl+T for terminal, ? for help")
-                    .style(Style::default().fg(Color::DarkGray))
-                    .block(Block::default().borders(Borders::ALL).title("rooms"));
+                let msg =
+                    Paragraph::new("Press Ctrl+B for sidebar, Ctrl+T for terminal, ? for help")
+                        .style(Style::default().fg(Color::DarkGray))
+                        .block(Block::default().borders(Borders::ALL).title("rooms"));
                 frame.render_widget(msg, area);
             }
         }
@@ -489,23 +496,21 @@ impl App {
             KeyCode::PageDown => vec![0x1b, b'[', b'6', b'~'],
             KeyCode::Delete => vec![0x1b, b'[', b'3', b'~'],
             KeyCode::Insert => vec![0x1b, b'[', b'2', b'~'],
-            KeyCode::F(n) => {
-                match n {
-                    1 => vec![0x1b, b'O', b'P'],
-                    2 => vec![0x1b, b'O', b'Q'],
-                    3 => vec![0x1b, b'O', b'R'],
-                    4 => vec![0x1b, b'O', b'S'],
-                    5 => vec![0x1b, b'[', b'1', b'5', b'~'],
-                    6 => vec![0x1b, b'[', b'1', b'7', b'~'],
-                    7 => vec![0x1b, b'[', b'1', b'8', b'~'],
-                    8 => vec![0x1b, b'[', b'1', b'9', b'~'],
-                    9 => vec![0x1b, b'[', b'2', b'0', b'~'],
-                    10 => vec![0x1b, b'[', b'2', b'1', b'~'],
-                    11 => vec![0x1b, b'[', b'2', b'3', b'~'],
-                    12 => vec![0x1b, b'[', b'2', b'4', b'~'],
-                    _ => return,
-                }
-            }
+            KeyCode::F(n) => match n {
+                1 => vec![0x1b, b'O', b'P'],
+                2 => vec![0x1b, b'O', b'Q'],
+                3 => vec![0x1b, b'O', b'R'],
+                4 => vec![0x1b, b'O', b'S'],
+                5 => vec![0x1b, b'[', b'1', b'5', b'~'],
+                6 => vec![0x1b, b'[', b'1', b'7', b'~'],
+                7 => vec![0x1b, b'[', b'1', b'8', b'~'],
+                8 => vec![0x1b, b'[', b'1', b'9', b'~'],
+                9 => vec![0x1b, b'[', b'2', b'0', b'~'],
+                10 => vec![0x1b, b'[', b'2', b'1', b'~'],
+                11 => vec![0x1b, b'[', b'2', b'3', b'~'],
+                12 => vec![0x1b, b'[', b'2', b'4', b'~'],
+                _ => return,
+            },
             _ => return,
         };
 
@@ -629,7 +634,8 @@ impl App {
         }
 
         // Log start
-        self.event_log.log_post_create_started(room_name, self.config.post_create_commands.len());
+        self.event_log
+            .log_post_create_started(room_name, self.config.post_create_commands.len());
 
         // Start background execution
         let handle = run_post_create_commands(
@@ -660,7 +666,10 @@ impl App {
             self.post_create_handles.remove(i);
 
             // Find the room and get its name for logging
-            let room_name = self.state.rooms.iter()
+            let room_name = self
+                .state
+                .rooms
+                .iter()
                 .find(|r| r.id == result.room_id)
                 .map(|r| r.name.clone());
 
@@ -676,7 +685,10 @@ impl App {
                     room.status = RoomStatus::Error;
                     room.last_error = result.error.clone();
                     if let Some(name) = &room_name {
-                        self.event_log.log_post_create_failed(name, result.error.as_deref().unwrap_or("unknown error"));
+                        self.event_log.log_post_create_failed(
+                            name,
+                            result.error.as_deref().unwrap_or("unknown error"),
+                        );
                     }
                     self.status_message = Some(format!(
                         "Post-create failed: {}",
@@ -700,7 +712,11 @@ impl App {
                     self.delete_room(&room_name);
                 }
             }
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::Char('h') | KeyCode::Char('l') => {
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Tab
+            | KeyCode::Char('h')
+            | KeyCode::Char('l') => {
                 self.confirm.toggle_selection();
             }
             KeyCode::Char('y') => {

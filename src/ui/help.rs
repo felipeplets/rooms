@@ -25,9 +25,10 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Global", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Global",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
             Span::styled("  ?       ", Style::default().fg(Color::Yellow)),
             Span::raw("Toggle this help"),
@@ -49,9 +50,10 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::raw("Return to sidebar / close help"),
         ]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Sidebar", Style::default().add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled(
+            "Sidebar",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
         Line::from(vec![
             Span::styled("  j/↓     ", Style::default().fg(Color::Yellow)),
             Span::raw("Move down"),

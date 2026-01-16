@@ -62,15 +62,16 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
                     .bg(Color::Cyan)
                     .add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::DarkGray)
+                Style::default().fg(Color::Black).bg(Color::DarkGray)
             } else {
                 Style::default()
             };
 
             let content = Line::from(vec![
-                Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)),
+                Span::styled(
+                    format!("{} ", status_icon),
+                    Style::default().fg(status_color),
+                ),
                 Span::styled(&room.name, style),
             ]);
 

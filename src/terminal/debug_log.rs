@@ -94,7 +94,11 @@ pub fn log_pty_input(data: &[u8]) {
         return;
     }
     // Log as hex dump for non-printable chars, but also show printable chars
-    let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
+    let hex: String = data
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(" ");
     let printable: String = data
         .iter()
         .map(|&b| {
@@ -111,7 +115,10 @@ pub fn log_pty_input(data: &[u8]) {
             }
         })
         .collect();
-    log_with_category("PTY-IN", &format!("len={} hex=[{}] ascii=[{}]", data.len(), hex, printable));
+    log_with_category(
+        "PTY-IN",
+        &format!("len={} hex=[{}] ascii=[{}]", data.len(), hex, printable),
+    );
 }
 
 /// Log VTE CSI sequence.
@@ -119,12 +126,13 @@ pub fn log_vte_csi(action: char, params: &[u16], intermediates: &[u8]) {
     if !is_enabled() {
         return;
     }
-    let params_str: String = params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(";");
+    let params_str: String = params
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(";");
     let inter_str: String = intermediates.iter().map(|&b| b as char).collect();
-    log_with_category(
-        "VTE",
-        &format!("CSI {}{}{}", inter_str, params_str, action),
-    );
+    log_with_category("VTE", &format!("CSI {}{}{}", inter_str, params_str, action));
 }
 
 /// Log VTE execute byte (control character).
@@ -160,12 +168,20 @@ pub fn log_screen_clear(operation: &str, mode: u16, cursor: (usize, usize)) {
     }
     log_with_category(
         "SCREEN",
-        &format!("{} mode={} cursor=({},{})", operation, mode, cursor.0, cursor.1),
+        &format!(
+            "{} mode={} cursor=({},{})",
+            operation, mode, cursor.0, cursor.1
+        ),
     );
 }
 
 /// Log line delete/insert operation.
-pub fn log_screen_lines(operation: &str, count: usize, cursor_y: usize, scroll_region: Option<(usize, usize)>) {
+pub fn log_screen_lines(
+    operation: &str,
+    count: usize,
+    cursor_y: usize,
+    scroll_region: Option<(usize, usize)>,
+) {
     if !is_enabled() {
         return;
     }
@@ -174,7 +190,10 @@ pub fn log_screen_lines(operation: &str, count: usize, cursor_y: usize, scroll_r
         .unwrap_or_else(|| "none".to_string());
     log_with_category(
         "SCREEN",
-        &format!("{} count={} y={} region={}", operation, count, cursor_y, region),
+        &format!(
+            "{} count={} y={} region={}",
+            operation, count, cursor_y, region
+        ),
     );
 }
 
@@ -199,7 +218,10 @@ pub fn log_cursor_move(old: (usize, usize), new: (usize, usize), reason: &str) {
     }
     log_with_category(
         "CURSOR",
-        &format!("({},{}) -> ({},{}) [{}]", old.0, old.1, new.0, new.1, reason),
+        &format!(
+            "({},{}) -> ({},{}) [{}]",
+            old.0, old.1, new.0, new.1, reason
+        ),
     );
 }
 
@@ -271,14 +293,21 @@ pub fn log_cell_row(row: usize, cells: &[char], cols: usize) {
         return;
     }
     // Show first 20 chars with their unicode codepoints
-    let sample: String = cells.iter().take(20.min(cols))
+    let sample: String = cells
+        .iter()
+        .take(20.min(cols))
         .map(|&c| if c == ' ' { '·' } else { c })
         .collect();
-    let codepoints: String = cells.iter().take(20.min(cols))
+    let codepoints: String = cells
+        .iter()
+        .take(20.min(cols))
         .map(|&c| format!("{:04X}", c as u32))
         .collect::<Vec<_>>()
         .join(" ");
-    log_with_category("CELLS", &format!("row={} sample=[{}] codes=[{}]", row, sample, codepoints));
+    log_with_category(
+        "CELLS",
+        &format!("row={} sample=[{}] codes=[{}]", row, sample, codepoints),
+    );
 }
 
 /// Log cell with background color info for a row.
@@ -287,7 +316,9 @@ pub fn log_cell_colors(row: usize, bg_colors: &[String]) {
         return;
     }
     // Show first 20 background colors
-    let sample: String = bg_colors.iter().take(20)
+    let sample: String = bg_colors
+        .iter()
+        .take(20)
         .map(|s| s.as_str())
         .collect::<Vec<_>>()
         .join(",");
