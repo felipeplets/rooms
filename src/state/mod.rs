@@ -385,6 +385,9 @@ mod tests {
     fn test_validate_paths_marks_missing_as_orphaned() {
         let mut state = RoomsState::default();
 
+        // Create a temporary directory that we know exists
+        let temp_dir = tempfile::tempdir().unwrap();
+
         // Add a room with a non-existent path
         let mut room = Room::new(
             "missing-room".to_string(),
@@ -394,11 +397,11 @@ mod tests {
         room.status = RoomStatus::Ready;
         state.add_room(room);
 
-        // Add a room with an existing path (current directory)
+        // Add a room with an existing path (temp directory)
         let mut existing_room = Room::new(
             "existing-room".to_string(),
             "existing-branch".to_string(),
-            std::env::current_dir().unwrap(),
+            temp_dir.path().to_path_buf(),
         );
         existing_room.status = RoomStatus::Ready;
         state.add_room(existing_room);
