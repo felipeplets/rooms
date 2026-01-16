@@ -24,7 +24,10 @@ use uuid::Uuid;
 
 use crate::config::Config;
 use crate::git::Worktree;
-use crate::room::{create_room, remove_room, run_post_create_commands, CreateRoomOptions, DirtyStatus, PostCreateHandle};
+use crate::room::{
+    create_room, remove_room, rename_room, run_post_create_commands, CreateRoomOptions,
+    DirtyStatus, PostCreateHandle,
+};
 use crate::state::{EventLog, RoomStatus, RoomsState};
 use crate::terminal::PtySession;
 
@@ -163,7 +166,10 @@ impl App {
         result
     }
 
-    fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    fn main_loop(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> io::Result<()> {
         loop {
             // Process PTY output for all sessions
             for session in self.sessions.values_mut() {
@@ -240,9 +246,10 @@ impl App {
             }
             (false, false) => {
                 // Show minimal status when both panels hidden
-                let msg = Paragraph::new("Press Ctrl+B for sidebar, Ctrl+T for terminal, ? for help")
-                    .style(Style::default().fg(Color::DarkGray))
-                    .block(Block::default().borders(Borders::ALL).title("rooms"));
+                let msg =
+                    Paragraph::new("Press Ctrl+B for sidebar, Ctrl+T for terminal, ? for help")
+                        .style(Style::default().fg(Color::DarkGray))
+                        .block(Block::default().borders(Borders::ALL).title("rooms"));
                 frame.render_widget(msg, area);
             }
         }
@@ -390,6 +397,19 @@ impl App {
                 self.prompt.cancel();
             }
             KeyCode::Enter => {
+                // Handle RenameRoom separately (single-step prompt)
+                if let PromptState::RenameRoom {
+                    current_name,
+                    input,
+                } = &self.prompt
+                {
+                    let old_name = current_name.clone();
+                    let new_name = input.value.clone();
+                    self.prompt = PromptState::None;
+                    self.apply_room_rename(&old_name, &new_name);
+                    return;
+                }
+
                 if let Some((room_name, branch_name)) = self.prompt.advance() {
                     // Prompt complete, create the room
                     self.create_room_interactive(room_name, branch_name);
@@ -459,6 +479,9 @@ impl App {
             KeyCode::Char('d') => {
                 self.start_room_deletion();
             }
+            KeyCode::Char('r') => {
+                self.start_room_rename();
+            }
             _ => {}
         }
     }
@@ -489,23 +512,21 @@ impl App {
             KeyCode::PageDown => vec![0x1b, b'[', b'6', b'~'],
             KeyCode::Delete => vec![0x1b, b'[', b'3', b'~'],
             KeyCode::Insert => vec![0x1b, b'[', b'2', b'~'],
-            KeyCode::F(n) => {
-                match n {
-                    1 => vec![0x1b, b'O', b'P'],
-                    2 => vec![0x1b, b'O', b'Q'],
-                    3 => vec![0x1b, b'O', b'R'],
-                    4 => vec![0x1b, b'O', b'S'],
-                    5 => vec![0x1b, b'[', b'1', b'5', b'~'],
-                    6 => vec![0x1b, b'[', b'1', b'7', b'~'],
-                    7 => vec![0x1b, b'[', b'1', b'8', b'~'],
-                    8 => vec![0x1b, b'[', b'1', b'9', b'~'],
-                    9 => vec![0x1b, b'[', b'2', b'0', b'~'],
-                    10 => vec![0x1b, b'[', b'2', b'1', b'~'],
-                    11 => vec![0x1b, b'[', b'2', b'3', b'~'],
-                    12 => vec![0x1b, b'[', b'2', b'4', b'~'],
-                    _ => return,
-                }
-            }
+            KeyCode::F(n) => match n {
+                1 => vec![0x1b, b'O', b'P'],
+                2 => vec![0x1b, b'O', b'Q'],
+                3 => vec![0x1b, b'O', b'R'],
+                4 => vec![0x1b, b'O', b'S'],
+                5 => vec![0x1b, b'[', b'1', b'5', b'~'],
+                6 => vec![0x1b, b'[', b'1', b'7', b'~'],
+                7 => vec![0x1b, b'[', b'1', b'8', b'~'],
+                8 => vec![0x1b, b'[', b'1', b'9', b'~'],
+                9 => vec![0x1b, b'[', b'2', b'0', b'~'],
+                10 => vec![0x1b, b'[', b'2', b'1', b'~'],
+                11 => vec![0x1b, b'[', b'2', b'3', b'~'],
+                12 => vec![0x1b, b'[', b'2', b'4', b'~'],
+                _ => return,
+            },
             _ => return,
         };
 
@@ -629,7 +650,8 @@ impl App {
         }
 
         // Log start
-        self.event_log.log_post_create_started(room_name, self.config.post_create_commands.len());
+        self.event_log
+            .log_post_create_started(room_name, self.config.post_create_commands.len());
 
         // Start background execution
         let handle = run_post_create_commands(
@@ -660,7 +682,10 @@ impl App {
             self.post_create_handles.remove(i);
 
             // Find the room and get its name for logging
-            let room_name = self.state.rooms.iter()
+            let room_name = self
+                .state
+                .rooms
+                .iter()
                 .find(|r| r.id == result.room_id)
                 .map(|r| r.name.clone());
 
@@ -676,7 +701,10 @@ impl App {
                     room.status = RoomStatus::Error;
                     room.last_error = result.error.clone();
                     if let Some(name) = &room_name {
-                        self.event_log.log_post_create_failed(name, result.error.as_deref().unwrap_or("unknown error"));
+                        self.event_log.log_post_create_failed(
+                            name,
+                            result.error.as_deref().unwrap_or("unknown error"),
+                        );
                     }
                     self.status_message = Some(format!(
                         "Post-create failed: {}",
@@ -700,7 +728,11 @@ impl App {
                     self.delete_room(&room_name);
                 }
             }
-            KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::Char('h') | KeyCode::Char('l') => {
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Tab
+            | KeyCode::Char('h')
+            | KeyCode::Char('l') => {
                 self.confirm.toggle_selection();
             }
             KeyCode::Char('y') => {
@@ -776,6 +808,61 @@ impl App {
             Err(e) => {
                 self.status_message = Some(format!("Failed to delete room: {}", e));
                 self.event_log.log_error(Some(room_name), &e.to_string());
+            }
+        }
+    }
+
+    /// Start the room rename flow.
+    fn start_room_rename(&mut self) {
+        let room = match self.selected_room() {
+            Some(r) => r,
+            None => {
+                self.status_message = Some("No room selected".to_string());
+                return;
+            }
+        };
+
+        let current_name = room.name.clone();
+        self.prompt = PromptState::start_room_rename(current_name);
+    }
+
+    /// Apply a room rename.
+    fn apply_room_rename(&mut self, old_name: &str, new_name: &str) {
+        // Skip if new name is empty
+        if new_name.is_empty() {
+            self.status_message = Some("Rename cancelled: name cannot be empty".to_string());
+            return;
+        }
+
+        // Get room ID before rename to clean up session afterward
+        let room_id = self.state.find_by_name(old_name).map(|r| r.id);
+
+        match rename_room(
+            &self.repo_root,
+            &self.rooms_dir,
+            &mut self.state,
+            old_name,
+            new_name,
+        ) {
+            Ok(_) => {
+                // Remove PTY session since the working directory changed
+                if let Some(id) = room_id {
+                    self.sessions.remove(&id);
+                }
+
+                // Log the event
+                self.event_log.log_room_renamed(old_name, new_name);
+
+                // Save state
+                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
+                    self.status_message = Some(format!("Room renamed but failed to save: {}", e));
+                } else {
+                    self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to rename room: {}", e));
+                self.event_log.log_error(Some(old_name), &e.to_string());
             }
         }
     }

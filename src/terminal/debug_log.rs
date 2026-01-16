@@ -94,11 +94,15 @@ pub fn log_pty_input(data: &[u8]) {
         return;
     }
     // Log as hex dump for non-printable chars, but also show printable chars
-    let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
+    let hex: String = data
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(" ");
     let printable: String = data
         .iter()
         .map(|&b| {
-            if b >= 0x20 && b < 0x7f {
+            if (0x20..0x7f).contains(&b) {
                 b as char
             } else if b == 0x1b {
                 '^'
@@ -111,23 +115,29 @@ pub fn log_pty_input(data: &[u8]) {
             }
         })
         .collect();
-    log_with_category("PTY-IN", &format!("len={} hex=[{}] ascii=[{}]", data.len(), hex, printable));
+    log_with_category(
+        "PTY-IN",
+        &format!("len={} hex=[{}] ascii=[{}]", data.len(), hex, printable),
+    );
 }
 
 /// Log VTE CSI sequence.
+#[allow(dead_code)]
 pub fn log_vte_csi(action: char, params: &[u16], intermediates: &[u8]) {
     if !is_enabled() {
         return;
     }
-    let params_str: String = params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(";");
+    let params_str: String = params
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(";");
     let inter_str: String = intermediates.iter().map(|&b| b as char).collect();
-    log_with_category(
-        "VTE",
-        &format!("CSI {}{}{}", inter_str, params_str, action),
-    );
+    log_with_category("VTE", &format!("CSI {}{}{}", inter_str, params_str, action));
 }
 
 /// Log VTE execute byte (control character).
+#[allow(dead_code)]
 pub fn log_vte_execute(byte: u8) {
     if !is_enabled() {
         return;
@@ -145,6 +155,7 @@ pub fn log_vte_execute(byte: u8) {
 }
 
 /// Log VTE ESC sequence.
+#[allow(dead_code)]
 pub fn log_vte_esc(byte: u8, intermediates: &[u8]) {
     if !is_enabled() {
         return;
@@ -154,18 +165,28 @@ pub fn log_vte_esc(byte: u8, intermediates: &[u8]) {
 }
 
 /// Log screen clear operation.
+#[allow(dead_code)]
 pub fn log_screen_clear(operation: &str, mode: u16, cursor: (usize, usize)) {
     if !is_enabled() {
         return;
     }
     log_with_category(
         "SCREEN",
-        &format!("{} mode={} cursor=({},{})", operation, mode, cursor.0, cursor.1),
+        &format!(
+            "{} mode={} cursor=({},{})",
+            operation, mode, cursor.0, cursor.1
+        ),
     );
 }
 
 /// Log line delete/insert operation.
-pub fn log_screen_lines(operation: &str, count: usize, cursor_y: usize, scroll_region: Option<(usize, usize)>) {
+#[allow(dead_code)]
+pub fn log_screen_lines(
+    operation: &str,
+    count: usize,
+    cursor_y: usize,
+    scroll_region: Option<(usize, usize)>,
+) {
     if !is_enabled() {
         return;
     }
@@ -174,11 +195,15 @@ pub fn log_screen_lines(operation: &str, count: usize, cursor_y: usize, scroll_r
         .unwrap_or_else(|| "none".to_string());
     log_with_category(
         "SCREEN",
-        &format!("{} count={} y={} region={}", operation, count, cursor_y, region),
+        &format!(
+            "{} count={} y={} region={}",
+            operation, count, cursor_y, region
+        ),
     );
 }
 
 /// Log scroll operation.
+#[allow(dead_code)]
 pub fn log_screen_scroll(direction: &str, count: usize, region: Option<(usize, usize)>) {
     if !is_enabled() {
         return;
@@ -193,17 +218,22 @@ pub fn log_screen_scroll(direction: &str, count: usize, region: Option<(usize, u
 }
 
 /// Log cursor movement.
+#[allow(dead_code)]
 pub fn log_cursor_move(old: (usize, usize), new: (usize, usize), reason: &str) {
     if !is_enabled() {
         return;
     }
     log_with_category(
         "CURSOR",
-        &format!("({},{}) -> ({},{}) [{}]", old.0, old.1, new.0, new.1, reason),
+        &format!(
+            "({},{}) -> ({},{}) [{}]",
+            old.0, old.1, new.0, new.1, reason
+        ),
     );
 }
 
 /// Log rendering info.
+#[allow(dead_code)]
 pub fn log_render_info(total_lines: usize, empty_lines: usize, screen_size: (usize, usize)) {
     if !is_enabled() {
         return;
@@ -218,6 +248,7 @@ pub fn log_render_info(total_lines: usize, empty_lines: usize, screen_size: (usi
 }
 
 /// Log PTY size calculation.
+#[allow(dead_code)]
 pub fn log_pty_size(terminal_size: (u16, u16), pty_size: (u16, u16), context: &str) {
     if !is_enabled() {
         return;
@@ -243,6 +274,7 @@ pub fn log_pty_resize(old: (usize, usize), new: (u16, u16)) {
 }
 
 /// Log alternate screen mode change.
+#[allow(dead_code)]
 pub fn log_alternate_screen(entering: bool) {
     if !is_enabled() {
         return;
@@ -266,28 +298,39 @@ pub fn log_debug(msg: &str) {
 }
 
 /// Log a sample of cell contents from a specific row.
+#[allow(dead_code)]
 pub fn log_cell_row(row: usize, cells: &[char], cols: usize) {
     if !is_enabled() {
         return;
     }
     // Show first 20 chars with their unicode codepoints
-    let sample: String = cells.iter().take(20.min(cols))
+    let sample: String = cells
+        .iter()
+        .take(20.min(cols))
         .map(|&c| if c == ' ' { '·' } else { c })
         .collect();
-    let codepoints: String = cells.iter().take(20.min(cols))
+    let codepoints: String = cells
+        .iter()
+        .take(20.min(cols))
         .map(|&c| format!("{:04X}", c as u32))
         .collect::<Vec<_>>()
         .join(" ");
-    log_with_category("CELLS", &format!("row={} sample=[{}] codes=[{}]", row, sample, codepoints));
+    log_with_category(
+        "CELLS",
+        &format!("row={} sample=[{}] codes=[{}]", row, sample, codepoints),
+    );
 }
 
 /// Log cell with background color info for a row.
+#[allow(dead_code)]
 pub fn log_cell_colors(row: usize, bg_colors: &[String]) {
     if !is_enabled() {
         return;
     }
     // Show first 20 background colors
-    let sample: String = bg_colors.iter().take(20)
+    let sample: String = bg_colors
+        .iter()
+        .take(20)
         .map(|s| s.as_str())
         .collect::<Vec<_>>()
         .join(",");

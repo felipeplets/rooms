@@ -15,6 +15,8 @@ pub enum EventType {
     RoomCreated,
     /// A room was deleted.
     RoomDeleted,
+    /// A room was renamed.
+    RoomRenamed,
     /// Post-create commands started.
     PostCreateStarted,
     /// Post-create commands completed successfully.
@@ -119,6 +121,14 @@ impl EventLog {
     /// Log a room deletion event.
     pub fn log_room_deleted(&self, room_name: &str) {
         let event = Event::new(EventType::RoomDeleted).with_room(room_name);
+        let _ = self.log(event);
+    }
+
+    /// Log a room rename event.
+    pub fn log_room_renamed(&self, old_name: &str, new_name: &str) {
+        let event = Event::new(EventType::RoomRenamed)
+            .with_room(new_name)
+            .with_details(format!("{} -> {}", old_name, new_name));
         let _ = self.log(event);
     }
 

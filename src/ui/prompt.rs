@@ -101,12 +101,31 @@ pub enum PromptState {
         room_name: Option<String>,
         input: TextInput,
     },
+
+    /// Prompting for new room name (rename).
+    RenameRoom {
+        /// Original name (for lookup during save).
+        current_name: String,
+        /// Text input pre-filled with current name.
+        input: TextInput,
+    },
 }
 
 impl PromptState {
     /// Start prompting for a new room.
     pub fn start_room_creation() -> Self {
         Self::RoomName(TextInput::new("Leave empty for generated name"))
+    }
+
+    /// Start prompting for a room rename.
+    pub fn start_room_rename(current_name: String) -> Self {
+        let mut input = TextInput::new("");
+        input.value = current_name.clone();
+        input.cursor = input.value.len(); // Cursor at end
+        Self::RenameRoom {
+            current_name,
+            input,
+        }
     }
 
     /// Check if a prompt is active.
@@ -120,11 +139,13 @@ impl PromptState {
             Self::None => None,
             Self::RoomName(input) => Some(input),
             Self::BranchName { input, .. } => Some(input),
+            Self::RenameRoom { input, .. } => Some(input),
         }
     }
 
     /// Advance to the next prompt step, returning the final result if done.
     /// Returns Some((room_name, branch_name)) when complete.
+    /// Note: RenameRoom is handled separately and should not use this method.
     pub fn advance(&mut self) -> Option<(Option<String>, Option<String>)> {
         match std::mem::take(self) {
             Self::None => None,
@@ -141,6 +162,11 @@ impl PromptState {
                 *self = Self::None;
                 Some((room_name, branch_name))
             }
+            Self::RenameRoom { .. } => {
+                // RenameRoom is handled directly in handle_prompt_key, not via advance()
+                *self = Self::None;
+                None
+            }
         }
     }
 
@@ -155,7 +181,10 @@ pub fn render_prompt(frame: &mut Frame, area: Rect, prompt: &PromptState) {
     let (title, hint, input) = match prompt {
         PromptState::None => return,
         PromptState::RoomName(input) => ("Create Room - Name", "Enter room name:", input),
-        PromptState::BranchName { input, .. } => ("Create Room - Branch", "Enter branch name:", input),
+        PromptState::BranchName { input, .. } => {
+            ("Create Room - Branch", "Enter branch name:", input)
+        }
+        PromptState::RenameRoom { input, .. } => ("Rename Room", "Enter new name:", input),
     };
 
     // Center the prompt
@@ -197,8 +226,7 @@ pub fn render_prompt(frame: &mut Frame, area: Rect, prompt: &PromptState) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
-    let input_paragraph = Paragraph::new(Line::from(display_value))
-        .block(input_block);
+    let input_paragraph = Paragraph::new(Line::from(display_value)).block(input_block);
     frame.render_widget(input_paragraph, chunks[1]);
 
     // Set cursor position

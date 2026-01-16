@@ -62,17 +62,28 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
                     .bg(Color::Cyan)
                     .add_modifier(Modifier::BOLD)
             } else if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::DarkGray)
+                Style::default().fg(Color::Black).bg(Color::DarkGray)
             } else {
                 Style::default()
             };
 
-            let content = Line::from(vec![
-                Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)),
-                Span::styled(&room.name, style),
-            ]);
+            let content = vec![
+                // Line 1: Status icon + Room name
+                Line::from(vec![
+                    Span::styled(
+                        format!("{} ", status_icon),
+                        Style::default().fg(status_color),
+                    ),
+                    Span::styled(&room.name, style),
+                ]),
+                // Line 2: Branch indicator + Branch name
+                Line::from(vec![
+                    Span::styled("  └─ ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(&room.branch, Style::default().fg(Color::DarkGray)),
+                ]),
+                // Line 3: Empty line for spacing
+                Line::from(""),
+            ];
 
             ListItem::new(content).style(style)
         })
