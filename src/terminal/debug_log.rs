@@ -102,7 +102,7 @@ pub fn log_pty_input(data: &[u8]) {
     let printable: String = data
         .iter()
         .map(|&b| {
-            if b >= 0x20 && b < 0x7f {
+            if (0x20..0x7f).contains(&b) {
                 b as char
             } else if b == 0x1b {
                 '^'
@@ -122,6 +122,7 @@ pub fn log_pty_input(data: &[u8]) {
 }
 
 /// Log VTE CSI sequence.
+#[allow(dead_code)]
 pub fn log_vte_csi(action: char, params: &[u16], intermediates: &[u8]) {
     if !is_enabled() {
         return;
@@ -136,6 +137,7 @@ pub fn log_vte_csi(action: char, params: &[u16], intermediates: &[u8]) {
 }
 
 /// Log VTE execute byte (control character).
+#[allow(dead_code)]
 pub fn log_vte_execute(byte: u8) {
     if !is_enabled() {
         return;
@@ -153,6 +155,7 @@ pub fn log_vte_execute(byte: u8) {
 }
 
 /// Log VTE ESC sequence.
+#[allow(dead_code)]
 pub fn log_vte_esc(byte: u8, intermediates: &[u8]) {
     if !is_enabled() {
         return;
@@ -162,6 +165,7 @@ pub fn log_vte_esc(byte: u8, intermediates: &[u8]) {
 }
 
 /// Log screen clear operation.
+#[allow(dead_code)]
 pub fn log_screen_clear(operation: &str, mode: u16, cursor: (usize, usize)) {
     if !is_enabled() {
         return;
@@ -176,6 +180,7 @@ pub fn log_screen_clear(operation: &str, mode: u16, cursor: (usize, usize)) {
 }
 
 /// Log line delete/insert operation.
+#[allow(dead_code)]
 pub fn log_screen_lines(
     operation: &str,
     count: usize,
@@ -198,6 +203,7 @@ pub fn log_screen_lines(
 }
 
 /// Log scroll operation.
+#[allow(dead_code)]
 pub fn log_screen_scroll(direction: &str, count: usize, region: Option<(usize, usize)>) {
     if !is_enabled() {
         return;
@@ -212,6 +218,7 @@ pub fn log_screen_scroll(direction: &str, count: usize, region: Option<(usize, u
 }
 
 /// Log cursor movement.
+#[allow(dead_code)]
 pub fn log_cursor_move(old: (usize, usize), new: (usize, usize), reason: &str) {
     if !is_enabled() {
         return;
@@ -226,6 +233,7 @@ pub fn log_cursor_move(old: (usize, usize), new: (usize, usize), reason: &str) {
 }
 
 /// Log rendering info.
+#[allow(dead_code)]
 pub fn log_render_info(total_lines: usize, empty_lines: usize, screen_size: (usize, usize)) {
     if !is_enabled() {
         return;
@@ -240,6 +248,7 @@ pub fn log_render_info(total_lines: usize, empty_lines: usize, screen_size: (usi
 }
 
 /// Log PTY size calculation.
+#[allow(dead_code)]
 pub fn log_pty_size(terminal_size: (u16, u16), pty_size: (u16, u16), context: &str) {
     if !is_enabled() {
         return;
@@ -265,6 +274,7 @@ pub fn log_pty_resize(old: (usize, usize), new: (u16, u16)) {
 }
 
 /// Log alternate screen mode change.
+#[allow(dead_code)]
 pub fn log_alternate_screen(entering: bool) {
     if !is_enabled() {
         return;
@@ -288,6 +298,7 @@ pub fn log_debug(msg: &str) {
 }
 
 /// Log a sample of cell contents from a specific row.
+#[allow(dead_code)]
 pub fn log_cell_row(row: usize, cells: &[char], cols: usize) {
     if !is_enabled() {
         return;
@@ -311,6 +322,7 @@ pub fn log_cell_row(row: usize, cells: &[char], cols: usize) {
 }
 
 /// Log cell with background color info for a row.
+#[allow(dead_code)]
 pub fn log_cell_colors(row: usize, bg_colors: &[String]) {
     if !is_enabled() {
         return;
