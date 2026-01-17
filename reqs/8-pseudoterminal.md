@@ -55,6 +55,19 @@ These keys are NOT forwarded to the PTY:
 - `Ctrl+b` (toggles sidebar)
 - `Ctrl+t` (toggles terminal)
 
+### Bracketed Paste Mode
+
+- Enabled on terminal startup for proper multi-line paste handling
+- Pasted content is wrapped in bracketed paste sequences (`ESC[200~`...`ESC[201~`)
+- Shell receives content as literal text, newlines are not executed during paste
+- Disabled on terminal cleanup/exit
+
+### Alt+Enter (Literal Newline)
+
+| Input | Sequence | Behavior |
+|-------|----------|----------|
+| `Alt+Enter` | `ESC + \r` | Insert literal newline in shell (for multi-line command editing) |
+
 ## Rendering
 
 ### Process

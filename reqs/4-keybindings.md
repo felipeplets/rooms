@@ -44,6 +44,7 @@ Standard keys are translated to terminal escape sequences:
 | Key | Sequence |
 |-----|----------|
 | `Enter` | `\r` |
+| `Alt+Enter` | `ESC + \r` (literal newline in shell) |
 | `Backspace` | `0x7f` |
 | `Tab` | `\t` |
 | Arrow keys | VT100 escape sequences |
