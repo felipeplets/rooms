@@ -3,6 +3,15 @@
 You are implementing `rooms`, a Rust + ratatui terminal UI to manage Git worktrees ("rooms").
 Repository: https://github.com/felipeplets/rooms
 
+## Worktree Context
+
+**CRITICAL**: Always work within the current worktree directory where you were initiated. This project uses git worktrees for development, and each worktree is an independent working copy:
+
+- Check your current working directory at the start of any session
+- All file edits, reads, and operations must use paths within the current worktree
+- Never modify files in the parent repository or other worktrees
+- The current worktree path pattern is: `.rooms/<worktree-name>/`
+
 ## Non-negotiable rules
 1. Privacy-first: DO NOT add telemetry. DO NOT add network calls. Everything is local-only.
 2. Transparency: Every action must surface state transitions in the UI and a local event log.

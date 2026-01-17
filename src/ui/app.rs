@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseEvent, MouseEventKind,
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -144,7 +144,12 @@ impl App {
         // Setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -159,7 +164,8 @@ impl App {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
+            DisableMouseCapture,
+            DisableBracketedPaste
         )?;
         terminal.show_cursor()?;
 
@@ -197,6 +203,7 @@ impl App {
                 match event::read()? {
                     Event::Key(key) => self.handle_key(key),
                     Event::Mouse(mouse) => self.handle_mouse(mouse),
+                    Event::Paste(text) => self.handle_paste(text),
                     _ => {}
                 }
             }
@@ -499,7 +506,14 @@ impl App {
                     c.encode_utf8(&mut buf).as_bytes().to_vec()
                 }
             }
-            KeyCode::Enter => vec![b'\r'],
+            KeyCode::Enter => {
+                if key.modifiers.contains(KeyModifiers::ALT) {
+                    // Alt+Enter: send ESC + CR for literal newline in shell
+                    vec![0x1b, b'\r']
+                } else {
+                    vec![b'\r']
+                }
+            }
             KeyCode::Backspace => vec![0x7f],
             KeyCode::Tab => vec![b'\t'],
             KeyCode::Up => vec![0x1b, b'[', b'A'],
@@ -549,6 +563,27 @@ impl App {
                 // For now, scrolling is handled by the PTY itself
             }
             _ => {}
+        }
+    }
+
+    fn handle_paste(&mut self, text: String) {
+        // Only process paste in terminal mode
+        if self.focus != Focus::MainScene {
+            return;
+        }
+
+        if let Some(session) = self.current_session_mut() {
+            // Send bracketed paste start sequence
+            let start = b"\x1b[200~";
+            // Send bracketed paste end sequence
+            let end = b"\x1b[201~";
+
+            // Write: start marker + content + end marker
+            let _ = session.write(start);
+            let _ = session.write(text.as_bytes());
+            if let Err(e) = session.write(end) {
+                self.status_message = Some(format!("Paste error: {}", e));
+            }
         }
     }
 
