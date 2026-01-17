@@ -56,7 +56,9 @@ Depending on branch state:
 ## Delete Room
 
 ### Trigger
-Key: `d` on selected room
+
+- **Delete key**: Shows confirmation dialog before deleting
+- **Ctrl+Delete**: Deletes immediately without confirmation (use with caution)
 
 ### Confirmation Dialog
 
