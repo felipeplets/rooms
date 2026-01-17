@@ -484,7 +484,13 @@ impl App {
                 self.create_room_silent();
             }
             KeyCode::Delete => {
-                self.start_room_deletion();
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    // Ctrl+Delete: delete without confirmation
+                    self.delete_room_immediate();
+                } else {
+                    // Delete: show confirmation dialog
+                    self.start_room_deletion();
+                }
             }
             KeyCode::Char('r') => {
                 self.start_room_rename();
@@ -810,6 +816,20 @@ impl App {
         };
 
         self.confirm = ConfirmState::start_delete(room_name, room_path, branch, dirty_status);
+    }
+
+    /// Delete the currently selected room immediately without confirmation.
+    fn delete_room_immediate(&mut self) {
+        let room = match self.selected_room() {
+            Some(r) => r,
+            None => {
+                self.status_message = Some("No room selected".to_string());
+                return;
+            }
+        };
+
+        let room_name = room.name.clone();
+        self.delete_room(&room_name);
     }
 
     /// Delete the room with the given name.
