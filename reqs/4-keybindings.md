@@ -9,7 +9,7 @@ Keys available regardless of context:
 | `?` | Toggle help overlay |
 | `Ctrl+b` | Toggle sidebar visibility |
 | `Ctrl+t` | Toggle terminal visibility |
-| `Esc` | Return to sidebar / close dialogs |
+| `Ctrl+Esc` | Return to sidebar / close help |
 
 ## Sidebar Context
 
@@ -32,7 +32,7 @@ When terminal is focused:
 
 | Key | Action |
 |-----|--------|
-| `Esc` | Return focus to sidebar |
+| `Ctrl+Esc` | Return focus to sidebar |
 | `Ctrl+b` | Toggle sidebar visibility |
 | `Ctrl+t` | Toggle terminal visibility |
 | All other keys | Forwarded to shell/PTY |

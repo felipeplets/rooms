@@ -336,10 +336,10 @@ impl App {
         }
 
         // When focused on MainScene (PTY), forward most keys to the terminal
-        // Only Esc returns to sidebar, Ctrl+B/T toggle panels
+        // Only Ctrl+Esc returns to sidebar, Ctrl+B/T toggle panels
         if self.focus == Focus::MainScene {
             match key.code {
-                KeyCode::Esc => {
+                KeyCode::Esc if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     if self.show_help {
                         self.show_help = false;
                     } else {
@@ -385,7 +385,7 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Esc => {
+            KeyCode::Esc if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.show_help {
                     self.show_help = false;
                 }

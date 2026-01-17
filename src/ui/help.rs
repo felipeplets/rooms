@@ -46,8 +46,8 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::raw("Toggle terminal"),
         ]),
         Line::from(vec![
-            Span::styled("  Esc     ", Style::default().fg(Color::Yellow)),
-            Span::raw("Return to sidebar / close help"),
+            Span::styled("  Ctrl+Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(" Return to sidebar / close help"),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -80,7 +80,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Press ? or Esc to close",
+            "Press ? or Ctrl+Esc to close",
             Style::default().fg(Color::DarkGray),
         )),
     ];
