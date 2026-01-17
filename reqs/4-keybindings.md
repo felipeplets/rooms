@@ -23,6 +23,7 @@ When sidebar is focused:
 | `a` | Add room (interactive: prompts for name and branch) |
 | `A` | Add room (quick: auto-generated name, current branch) |
 | `Delete` | Delete room (shows confirmation dialog) |
+| `Ctrl+Delete` | Delete room immediately (no confirmation dialog) |
 | `r` | Rename room (prompts for new name) |
 | `Ctrl+b` | Toggle sidebar visibility |
 
