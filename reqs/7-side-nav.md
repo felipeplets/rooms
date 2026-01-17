@@ -32,6 +32,13 @@ Each room displays:
 2. **Room name**: User-given or auto-generated
 3. **Branch name**: Shown on second line with tree connector (`└─`)
 
+## Text Overflow
+
+When room names or branch names exceed the available sidebar width, they are truncated with an ellipsis (`…`):
+- Room names are truncated after accounting for the status icon prefix (2 characters)
+- Branch names are truncated after accounting for the tree connector prefix (5 characters)
+- Unicode characters are handled correctly using unicode width measurements
+
 ## Status Icons
 
 | Icon | Status | Color |
