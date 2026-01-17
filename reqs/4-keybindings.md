@@ -6,10 +6,7 @@ Keys available regardless of context:
 
 | Key | Action |
 |-----|--------|
-| `?` | Toggle help overlay |
-| `Ctrl+b` | Toggle sidebar visibility |
 | `Ctrl+t` | Toggle terminal visibility |
-| `Ctrl+Esc` | Return to sidebar / close help |
 
 ## Sidebar Context
 
@@ -17,6 +14,8 @@ When sidebar is focused:
 
 | Key | Action |
 |-----|--------|
+| `?` | Toggle help overlay |
+| `Esc` | Close help overlay |
 | `q` | Quit application |
 | `j` / `↓` | Move selection down |
 | `k` / `↑` | Move selection up |
@@ -24,8 +23,9 @@ When sidebar is focused:
 | `a` | Add room (interactive: prompts for name and branch) |
 | `A` | Add room (quick: auto-generated name, current branch) |
 | `Delete` | Delete room (shows confirmation dialog) |
-| `Ctrl+Delete` | Delete room immediately (no confirmation) |
+| `Ctrl+Delete` | Delete room immediately (no confirmation dialog) |
 | `r` | Rename room (prompts for new name) |
+| `Ctrl+b` | Toggle sidebar visibility |
 
 ## Terminal Context (MainScene)
 
@@ -33,8 +33,7 @@ When terminal is focused:
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+Esc` | Return focus to sidebar |
-| `Ctrl+b` | Toggle sidebar visibility |
+| `Ctrl+b` | Focus sidebar (shows it if hidden) |
 | `Ctrl+t` | Toggle terminal visibility |
 | All other keys | Forwarded to shell/PTY |
 

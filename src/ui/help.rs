@@ -26,7 +26,7 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
         )),
         Line::from(""),
         Line::from(vec![Span::styled(
-            "Global",
+            "Sidebar",
             Style::default().add_modifier(Modifier::BOLD),
         )]),
         Line::from(vec![
@@ -37,23 +37,6 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::styled("  q       ", Style::default().fg(Color::Yellow)),
             Span::raw("Quit"),
         ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
-            Span::raw("Toggle sidebar"),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+t  ", Style::default().fg(Color::Yellow)),
-            Span::raw("Toggle terminal"),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+Esc", Style::default().fg(Color::Yellow)),
-            Span::raw(" Return to sidebar / close help"),
-        ]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Sidebar",
-            Style::default().add_modifier(Modifier::BOLD),
-        )]),
         Line::from(vec![
             Span::styled("  j/↓     ", Style::default().fg(Color::Yellow)),
             Span::raw("Move down"),
@@ -78,9 +61,30 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::styled("  Del     ", Style::default().fg(Color::Yellow)),
             Span::raw("Delete room"),
         ]),
+        Line::from(vec![
+            Span::styled("  r       ", Style::default().fg(Color::Yellow)),
+            Span::raw("Rename room"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
+            Span::raw("Toggle sidebar visibility"),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Terminal",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![
+            Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
+            Span::raw("Return to sidebar"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+t  ", Style::default().fg(Color::Yellow)),
+            Span::raw("Toggle terminal visibility"),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Press ? or Ctrl+Esc to close",
+            "Press ? or Esc to close",
             Style::default().fg(Color::DarkGray),
         )),
     ];

@@ -336,18 +336,13 @@ impl App {
         }
 
         // When focused on MainScene (PTY), forward most keys to the terminal
-        // Only Ctrl+Esc returns to sidebar, Ctrl+B/T toggle panels
+        // Ctrl+B focuses sidebar (and shows it if hidden), Ctrl+T toggles terminal
         if self.focus == Focus::MainScene {
             match key.code {
-                KeyCode::Esc if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if self.show_help {
-                        self.show_help = false;
-                    } else {
-                        self.focus = Focus::Sidebar;
-                    }
-                }
                 KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.sidebar_visible = !self.sidebar_visible;
+                    // Focus sidebar and ensure it's visible
+                    self.sidebar_visible = true;
+                    self.focus = Focus::Sidebar;
                 }
                 KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.main_scene_visible = !self.main_scene_visible;
@@ -385,7 +380,7 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Esc if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
                 }
