@@ -338,9 +338,11 @@ function setOutput(name: string, value: string): void {
       appendFileSync(outputFile, `${name}=${value}\n`);
     }
   }
-  console.log(
-    `::set-output:: ${name}=${value.split("\n")[0]}${value.includes("\n") ? "..." : ""}`
-  );
+  // Log output for debugging (truncate multiline values)
+  const displayValue = value.includes("\n")
+    ? `${value.split("\n")[0]}...`
+    : value;
+  console.log(`📤 Output: ${name}=${displayValue}`);
 }
 
 /**
