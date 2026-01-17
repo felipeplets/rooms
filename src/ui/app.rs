@@ -476,7 +476,7 @@ impl App {
             KeyCode::Char('A') => {
                 self.create_room_silent();
             }
-            KeyCode::Char('d') => {
+            KeyCode::Delete => {
                 self.start_room_deletion();
             }
             KeyCode::Char('r') => {

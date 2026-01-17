@@ -23,7 +23,7 @@ When sidebar is focused:
 | `Enter` | Focus terminal / start PTY session for selected room |
 | `a` | Add room (interactive: prompts for name and branch) |
 | `A` | Add room (quick: auto-generated name, current branch) |
-| `d` | Delete room (shows confirmation dialog) |
+| `Delete` | Delete room (shows confirmation dialog) |
 | `r` | Rename room (prompts for new name) |
 
 ## Terminal Context (MainScene)
