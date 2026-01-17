@@ -3,7 +3,7 @@
 ## Layout
 
 The sidebar occupies the left portion of the screen:
-- **Both panels visible**: 30% width
+- **Both panels visible**: Fixed 40 columns width
 - **Sidebar only**: 100% width
 - **Hidden**: 0% width (toggled via `Ctrl+b`)
 

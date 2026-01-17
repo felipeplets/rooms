@@ -305,10 +305,10 @@ impl App {
     fn calculate_layout(&self, area: Rect) -> Vec<Rect> {
         match (self.sidebar_visible, self.main_scene_visible) {
             (true, true) => {
-                // 30% sidebar, 70% main
+                // Fixed 40-column sidebar, main takes remaining space
                 Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+                    .constraints([Constraint::Length(40), Constraint::Fill(1)])
                     .split(area)
                     .to_vec()
             }
