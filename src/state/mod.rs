@@ -2,8 +2,14 @@
 #![allow(dead_code)]
 
 mod events;
+mod transient;
 
 pub use events::EventLog;
+#[allow(unused_imports)]
+pub use transient::{TransientRoomState, TransientStateStore};
+
+// Re-export RoomStatus from room::model for backward compatibility
+pub use crate::room::RoomStatus;
 
 // Re-export RoomStatus from room::model for backward compatibility
 pub use crate::room::RoomStatus;
