@@ -127,7 +127,5 @@
 
   "portsAttributes": {},
 
-  "onCreateCommand": "rustc --version && cargo --version",
-
   "updateContentCommand": "cargo fetch"
 }

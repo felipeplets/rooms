@@ -4,6 +4,8 @@ set -e
 echo "🚀 Setting up rooms development environment..."
 
 # Install Bun (for release scripts)
+# Using official Bun installer from https://bun.sh/install
+# This is the recommended installation method by the Bun team
 echo "📦 Installing Bun..."
 curl -fsSL https://bun.sh/install | bash
 export BUN_INSTALL="$HOME/.bun"
