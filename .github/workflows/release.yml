@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no commits, tags, or releases)'
+        type: boolean
+        default: false
+      force_version:
+        description: 'Force version (overrides auto-detection, e.g., 1.2.3)'
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt clippy
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5.0.2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2.1.2
+
+      - name: Prepare release
+        id: release_info
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ -n "${{ inputs.force_version }}" ]; then
+            ARGS="$ARGS --force-version=${{ inputs.force_version }}"
+          fi
+          bun scripts/release.ts $ARGS
+
+      - name: Configure git
+        if: inputs.dry_run != true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit version bump
+        if: inputs.dry_run != true
+        run: |
+          git add Cargo.toml
+          git commit -m "chore(release): v${{ steps.release_info.outputs.version }}"
+
+      - name: Create and push tag
+        if: inputs.dry_run != true
+        run: |
+          git tag -a "v${{ steps.release_info.outputs.version }}" -m "Release v${{ steps.release_info.outputs.version }}"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.release_info.outputs.version }}" \
+            --title "v${{ steps.release_info.outputs.version }}" \
+            --notes "${{ steps.release_info.outputs.changelog }}"
+
+      - name: Trigger Homebrew tap update
+        if: inputs.dry_run != true
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set, skipping Homebrew tap update"
+            exit 0
+          fi
+
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/felipeplets/homebrew-tap/dispatches \
+            -d '{
+              "event_type": "rooms-release",
+              "client_payload": {
+                "version": "${{ steps.release_info.outputs.version }}",
+                "tarball_url": "https://github.com/felipeplets/rooms/archive/refs/tags/v${{ steps.release_info.outputs.version }}.tar.gz",
+                "tag": "v${{ steps.release_info.outputs.version }}"
+              }
+            }'
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "**Mode:** Dry Run (no changes made)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Mode:** Production Release" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.release_info.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bump Type:** ${{ steps.release_info.outputs.bump_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Changelog" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.release_info.outputs.changelog }}" >> $GITHUB_STEP_SUMMARY
