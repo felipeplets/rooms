@@ -62,6 +62,10 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::raw("Delete room"),
         ]),
         Line::from(vec![
+            Span::styled("  r       ", Style::default().fg(Color::Yellow)),
+            Span::raw("Rename room"),
+        ]),
+        Line::from(vec![
             Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
             Span::raw("Toggle sidebar visibility"),
         ]),
