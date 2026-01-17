@@ -1,0 +1,91 @@
+# Pseudoterminal (PTY)
+
+## Overview
+
+Each room has an associated PTY session that provides an embedded terminal. The session is created when the user first focuses a room and persists until the application exits or the room is deleted/renamed.
+
+## PTY Creation
+
+### Trigger
+- User presses `Enter` on a room in the sidebar
+- Room does not already have an active session
+
+### Parameters
+- **Columns/Rows**: Derived from terminal dimensions
+- **Working Directory**: Room's worktree path
+- **Shell**: Value of `$SHELL` environment variable, fallback to `/bin/sh`
+
+### Implementation
+- Uses `portable-pty` crate for cross-platform PTY support
+- Spawns shell process attached to PTY
+- Background thread reads PTY output continuously
+
+## Terminal Emulation
+
+### Parser
+- Uses `vt100` crate for ANSI/VT100 escape sequence parsing
+- Scrollback buffer: 1000 lines
+
+### Supported Features
+- ANSI escape sequences
+- 256-color palette
+- RGB/TrueColor
+- Text attributes (bold, italic, underline, etc.)
+- Cursor positioning
+- Cursor visibility
+
+## Input Handling
+
+### Key Translation
+All keyboard input in terminal mode is translated to appropriate sequences:
+
+| Input | Output |
+|-------|--------|
+| Printable characters | Raw bytes |
+| Enter | `\r` |
+| Backspace | `0x7f` |
+| Tab | `\t` |
+| Arrow keys | VT100 escape sequences |
+| Function keys | VT100 sequences |
+| Ctrl+letter | ASCII control codes (1-26) |
+
+### Reserved Keys
+These keys are NOT forwarded to the PTY:
+- `Esc` (returns to sidebar)
+- `Ctrl+b` (toggles sidebar)
+- `Ctrl+t` (toggles terminal)
+
+## Rendering
+
+### Process
+1. Poll output from PTY reader thread
+2. Feed output bytes to vt100 parser
+3. Extract screen state from parser
+4. Render cell-by-cell to ratatui frame buffer
+
+### Color Mapping
+vt100 colors are converted to ratatui colors:
+- Named colors (black, red, green, etc.)
+- 256-color palette indices
+- RGB values
+
+## Resize Handling
+
+- Terminal resize events are detected in the main loop
+- PTY is resized to match new dimensions
+- vt100 parser is updated with new size
+
+## Session Lifecycle
+
+| Event | Action |
+|-------|--------|
+| Room selected (Enter) | Create session if not exists |
+| Room deleted | Destroy session |
+| Room renamed | Destroy session (working directory changed) |
+| Application exit | All sessions terminated |
+
+## Debug Logging
+
+When `--debug-pty` flag is set:
+- PTY output is logged to `~/.rooms/debug.log`
+- Useful for diagnosing terminal rendering issues

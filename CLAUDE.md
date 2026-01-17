@@ -18,9 +18,13 @@ Repository: https://github.com/felipeplets/rooms
 ## Tech constraints
 - Rust + ratatui.
 - Use git worktree (`git worktree list/add/remove`) as source of truth.
-- Persist local settings/config under `<repo>/.rooms/`.
+- Persist local settings/configurations
 
 ## Coding guidelines
 - Wrap all git/subprocess calls in a single module with structured results (stdout/stderr/exit code).
 - All state writes must be atomic (write temp then rename).
 - Errors must include actionable messages.
+- Used SOLID principles to structure the code
+
+## Requirements
+- Follow requirements described in ./reqs/ and point for any requirement inconsistency
