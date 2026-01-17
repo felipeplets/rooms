@@ -3,10 +3,41 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::state::RoomStatus;
 
 use super::app::{App, Focus};
+
+/// Truncate a string to fit within max_width, adding ellipsis if needed.
+/// Uses unicode width to handle multi-byte characters correctly.
+fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
+    let text_width = text.width();
+    if text_width <= max_width {
+        return text.to_string();
+    }
+
+    // Reserve 1 character for the ellipsis
+    if max_width <= 1 {
+        return "…".to_string();
+    }
+
+    let target_width = max_width - 1;
+    let mut result = String::new();
+    let mut current_width = 0;
+
+    for ch in text.chars() {
+        let ch_width = ch.width().unwrap_or(0);
+        if current_width + ch_width > target_width {
+            break;
+        }
+        result.push(ch);
+        current_width += ch_width;
+    }
+
+    result.push('…');
+    result
+}
 
 /// Render the sidebar panel showing the list of rooms.
 pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
@@ -45,6 +76,17 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
+    // Calculate available width for text (area width minus borders)
+    let available_width = area.width.saturating_sub(2) as usize;
+
+    // Status icon + space takes 2 characters
+    const STATUS_PREFIX_WIDTH: usize = 2;
+    // Branch indicator "  └─ " takes 5 characters
+    const BRANCH_PREFIX_WIDTH: usize = 5;
+
+    let room_name_max_width = available_width.saturating_sub(STATUS_PREFIX_WIDTH);
+    let branch_name_max_width = available_width.saturating_sub(BRANCH_PREFIX_WIDTH);
+
     // Build list items
     let items: Vec<ListItem> = app
         .state
@@ -67,6 +109,10 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default()
             };
 
+            // Truncate room name and branch if they exceed available width
+            let room_name = truncate_with_ellipsis(&room.name, room_name_max_width);
+            let branch_name = truncate_with_ellipsis(&room.branch, branch_name_max_width);
+
             let content = vec![
                 // Line 1: Status icon + Room name
                 Line::from(vec![
@@ -74,12 +120,12 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
                         format!("{} ", status_icon),
                         Style::default().fg(status_color),
                     ),
-                    Span::styled(&room.name, style),
+                    Span::styled(room_name, style),
                 ]),
                 // Line 2: Branch indicator + Branch name
                 Line::from(vec![
                     Span::styled("  └─ ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(&room.branch, Style::default().fg(Color::DarkGray)),
+                    Span::styled(branch_name, Style::default().fg(Color::DarkGray)),
                 ]),
                 // Line 3: Empty line for spacing
                 Line::from(""),
@@ -126,5 +172,36 @@ fn status_color(status: &RoomStatus) -> Color {
         RoomStatus::Error => Color::Red,
         RoomStatus::Deleting => Color::Yellow,
         RoomStatus::Orphaned => Color::DarkGray,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_with_ellipsis_no_truncation_needed() {
+        assert_eq!(truncate_with_ellipsis("hello", 10), "hello");
+        assert_eq!(truncate_with_ellipsis("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_with_ellipsis_truncates() {
+        assert_eq!(truncate_with_ellipsis("hello world", 8), "hello w…");
+        assert_eq!(truncate_with_ellipsis("hello world", 6), "hello…");
+    }
+
+    #[test]
+    fn test_truncate_with_ellipsis_edge_cases() {
+        assert_eq!(truncate_with_ellipsis("hello", 1), "…");
+        assert_eq!(truncate_with_ellipsis("hello", 0), "…");
+        assert_eq!(truncate_with_ellipsis("", 5), "");
+    }
+
+    #[test]
+    fn test_truncate_with_ellipsis_unicode() {
+        // Test with multi-byte characters
+        assert_eq!(truncate_with_ellipsis("日本語", 4), "日…");
+        assert_eq!(truncate_with_ellipsis("日本語", 6), "日本語");
     }
 }
