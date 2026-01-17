@@ -37,3 +37,37 @@ Repository: https://github.com/felipeplets/rooms
 
 ## Requirements
 - Follow requirements described in ./reqs/ and point for any requirement inconsistency
+- Always update requirements based on new feature requests, changes or fixes.
+
+## Commit Message Convention
+
+Uses [Conventional Commits](https://conventionalcommits.org/) for automated releases.
+
+### Format
+```
+<type>[scope][!]: <description>
+```
+
+### Types
+- `feat`: New feature → minor version bump
+- `fix`: Bug fix → patch version bump
+- `docs`: Documentation only → patch
+- `chore`: Maintenance → patch
+- `refactor`, `test`, `perf`, `style`, `ci`, `build`: → patch
+
+### Breaking Changes
+- Add `!` after type: `feat!: breaking change`
+- Or `BREAKING CHANGE:` in footer → major version bump
+
+### Scope (optional)
+Use module names: `git`, `room`, `ui`, `terminal`, `config`, `state`
+
+### PR Titles
+PRs are squash-merged; PR title becomes the commit message.
+PR titles MUST follow conventional commit format.
+
+## Before commiting code
+- Check that format is correct using `cargo fmt --check`
+- run `cargo clippy --all-targets --all-features -- -D warnings`
+- run `cargo build --verbose`
+- run `cargo test --verbose`
