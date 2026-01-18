@@ -1,0 +1,506 @@
+//! Room discovery from git worktrees.
+//!
+//! This module provides functions to discover rooms by querying git worktrees
+//! and merging the results with transient state.
+
+// Allow dead code for now - these utilities will be used in later implementation steps
+#![allow(dead_code)]
+
+use std::path::Path;
+
+use thiserror::Error;
+
+use crate::git::command::CommandError;
+use crate::git::{list_worktrees_from, Worktree};
+use crate::room::{RoomInfo, RoomStatus};
+use crate::state::TransientStateStore;
+
+/// Error type for room discovery operations.
+#[derive(Error, Debug)]
+pub enum DiscoveryError {
+    /// Failed to list git worktrees.
+    #[error("failed to list worktrees: {0}")]
+    WorktreeList(#[from] CommandError),
+
+    /// Rooms directory does not exist or is inaccessible.
+    #[error("rooms directory does not exist or is inaccessible: {path}")]
+    InvalidRoomsDir { path: String },
+}
+
+/// Discover rooms by listing git worktrees and filtering to the rooms directory.
+///
+/// This function:
+/// 1. Lists all worktrees in the repository
+/// 2. Filters to only worktrees inside the rooms directory
+/// 3. Excludes the main worktree
+/// 4. Merges transient state (Creating, Deleting, Error) with discovered rooms
+/// 5. Marks prunable worktrees as Orphaned
+///
+/// # Arguments
+/// * `repo_root` - Path to the repository root
+/// * `rooms_dir` - Path to the rooms directory (e.g., `.rooms/`)
+/// * `transient` - Transient state store for in-memory status
+///
+/// # Returns
+/// A vector of `RoomInfo` representing discovered rooms.
+pub fn discover_rooms(
+    repo_root: &Path,
+    rooms_dir: &Path,
+    transient: &TransientStateStore,
+) -> Result<Vec<RoomInfo>, DiscoveryError> {
+    // Validate that rooms_dir exists and is accessible
+    if !rooms_dir.exists() || !rooms_dir.is_dir() {
+        return Err(DiscoveryError::InvalidRoomsDir {
+            path: rooms_dir.to_string_lossy().to_string(),
+        });
+    }
+
+    // List all worktrees from the repository root
+    let worktrees = list_worktrees_from(repo_root)?;
+
+    // Canonicalize rooms_dir for reliable path comparison
+    let rooms_dir_canonical = rooms_dir
+        .canonicalize()
+        .unwrap_or_else(|_| rooms_dir.to_path_buf());
+
+    // Filter to worktrees inside rooms_dir and convert to RoomInfo
+    let rooms: Vec<RoomInfo> = worktrees
+        .iter()
+        .filter(|wt| {
+            // Skip the main worktree
+            if wt.is_main {
+                return false;
+            }
+
+            // Check if worktree is inside rooms_dir using canonicalized paths
+            is_worktree_in_rooms_dir(wt, &rooms_dir_canonical)
+        })
+        .map(|wt| {
+            let mut room_info = RoomInfo::from(wt);
+
+            // Apply transient state if present
+            if let Some(transient_state) = transient.get(&room_info.name) {
+                room_info.status = transient_state.status.clone();
+                room_info.last_error = transient_state.last_error.clone();
+            }
+
+            room_info
+        })
+        .collect();
+
+    Ok(rooms)
+}
+
+/// Check if a worktree is located inside the rooms directory.
+///
+/// Uses canonicalized paths for reliable comparison, with a fallback to
+/// starts_with comparison if canonicalization fails.
+fn is_worktree_in_rooms_dir(worktree: &Worktree, rooms_dir_canonical: &Path) -> bool {
+    // Try to canonicalize the worktree path
+    if let Ok(wt_canonical) = worktree.path.canonicalize() {
+        return wt_canonical.starts_with(rooms_dir_canonical);
+    }
+
+    // Fallback for prunable worktrees (path might not exist on disk)
+    // Use the original paths but normalize them by stripping trailing slashes
+    // and handling . and .. components where possible
+    if worktree.is_prunable() {
+        // For non-existent paths, compare normalized string representations
+        let wt_str = normalize_path_string(&worktree.path);
+        let rooms_str = normalize_path_string(rooms_dir_canonical);
+        return wt_str.starts_with(&rooms_str);
+    }
+
+    false
+}
+
+/// Normalize a path to a string for comparison.
+///
+/// This handles:
+/// - Trailing slashes
+/// - Converts to absolute-like representation for comparison
+fn normalize_path_string(path: &Path) -> String {
+    // Get the path as a string and ensure consistent formatting
+    let path_str = path.to_string_lossy();
+
+    // Remove trailing slashes for consistent comparison
+    path_str.trim_end_matches('/').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_normalize_path_string() {
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("/home/user/repo/.rooms/")),
+            "/home/user/repo/.rooms"
+        );
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("/home/user/repo/.rooms")),
+            "/home/user/repo/.rooms"
+        );
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("/home/user/repo/.rooms///")),
+            "/home/user/repo/.rooms"
+        );
+    }
+
+    #[test]
+    fn test_is_worktree_in_rooms_dir_prunable() {
+        // Test prunable worktree detection with non-existent paths
+        let worktree = Worktree {
+            path: PathBuf::from("/home/user/repo/.rooms/orphaned-room"),
+            head: "abc123".to_string(),
+            branch: Some("orphaned-room".to_string()),
+            is_main: false,
+            prunable: Some("gitdir file points to non-existent location".to_string()),
+            locked: None,
+        };
+
+        let rooms_dir = PathBuf::from("/home/user/repo/.rooms");
+
+        // This should match even though the path doesn't exist
+        assert!(is_worktree_in_rooms_dir(&worktree, &rooms_dir));
+    }
+
+    #[test]
+    fn test_is_worktree_in_rooms_dir_prunable_outside() {
+        // Test prunable worktree that is NOT in rooms_dir
+        let worktree = Worktree {
+            path: PathBuf::from("/home/user/other-worktrees/feature"),
+            head: "abc123".to_string(),
+            branch: Some("feature".to_string()),
+            is_main: false,
+            prunable: Some("gitdir file points to non-existent location".to_string()),
+            locked: None,
+        };
+
+        let rooms_dir = PathBuf::from("/home/user/repo/.rooms");
+
+        assert!(!is_worktree_in_rooms_dir(&worktree, &rooms_dir));
+    }
+
+    #[test]
+    fn test_discovery_error_invalid_rooms_dir() {
+        // Test that discovery fails with InvalidRoomsDir for non-existent directory
+        let repo_root = PathBuf::from("/some/repo");
+        let rooms_dir = PathBuf::from("/this/path/definitely/does/not/exist/rooms");
+        let transient = TransientStateStore::new();
+
+        let result = discover_rooms(&repo_root, &rooms_dir, &transient);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            DiscoveryError::InvalidRoomsDir { path } => {
+                assert!(path.contains("does/not/exist"));
+            }
+            other => panic!("Expected InvalidRoomsDir error, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_discover_rooms_empty() {
+        use std::process::Command;
+
+        // Create a temp git repo with a rooms directory but no worktrees
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Configure git
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Create rooms directory
+        let rooms_dir = temp_path.join(".rooms");
+        std::fs::create_dir(&rooms_dir).unwrap();
+
+        let transient = TransientStateStore::new();
+        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert!(rooms.is_empty());
+    }
+
+    #[test]
+    fn test_discover_rooms_with_worktree() {
+        use std::process::Command;
+
+        // Create a temp git repo
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Configure git
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Create rooms directory
+        let rooms_dir = temp_path.join(".rooms");
+        std::fs::create_dir(&rooms_dir).unwrap();
+
+        // Add a worktree in the rooms directory
+        let worktree_path = rooms_dir.join("test-room");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "test-room",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        let transient = TransientStateStore::new();
+        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "test-room");
+        assert_eq!(rooms[0].branch, Some("test-room".to_string()));
+        assert_eq!(rooms[0].status, RoomStatus::Ready);
+    }
+
+    #[test]
+    fn test_discover_rooms_applies_transient_state() {
+        use std::process::Command;
+
+        // Create a temp git repo
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Configure git
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Create rooms directory and worktree
+        let rooms_dir = temp_path.join(".rooms");
+        std::fs::create_dir(&rooms_dir).unwrap();
+
+        let worktree_path = rooms_dir.join("creating-room");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "creating-room",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Set transient state
+        let mut transient = TransientStateStore::new();
+        transient.set_status("creating-room", RoomStatus::Creating);
+
+        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "creating-room");
+        // Transient status should override the default Ready status
+        assert_eq!(rooms[0].status, RoomStatus::Creating);
+    }
+
+    #[test]
+    fn test_discover_rooms_with_prunable_worktree() {
+        use std::process::Command;
+
+        // Create a temp git repo
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Configure git
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Create rooms directory
+        let rooms_dir = temp_path.join(".rooms");
+        std::fs::create_dir(&rooms_dir).unwrap();
+
+        // Add a worktree in the rooms directory
+        let worktree_path = rooms_dir.join("orphan-room");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "orphan-room",
+                worktree_path.to_str().unwrap(),
+            ])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Delete the worktree directory to make it prunable
+        std::fs::remove_dir_all(&worktree_path).unwrap();
+
+        let transient = TransientStateStore::new();
+        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "orphan-room");
+        // Prunable worktrees should have Orphaned status
+        assert_eq!(rooms[0].status, RoomStatus::Orphaned);
+        assert!(rooms[0].is_prunable);
+    }
+
+    #[test]
+    fn test_discover_rooms_excludes_worktrees_outside_rooms_dir() {
+        use std::process::Command;
+
+        // Create a temp git repo
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Configure git
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "init"])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Create rooms directory
+        let rooms_dir = temp_path.join(".rooms");
+        std::fs::create_dir(&rooms_dir).unwrap();
+
+        // Add a worktree inside rooms dir
+        let inside_path = rooms_dir.join("inside-room");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "inside-room",
+                inside_path.to_str().unwrap(),
+            ])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        // Add a worktree outside rooms dir
+        let outside_path = temp_path.join("outside-worktree");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "outside-branch",
+                outside_path.to_str().unwrap(),
+            ])
+            .current_dir(temp_path)
+            .output()
+            .unwrap();
+
+        let transient = TransientStateStore::new();
+        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+
+        // Should only include the worktree inside rooms dir
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "inside-room");
+    }
+}
