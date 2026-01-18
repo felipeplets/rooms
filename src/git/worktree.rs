@@ -19,12 +19,33 @@ pub struct Worktree {
 
     /// Whether this is the main worktree.
     pub is_main: bool,
+
+    /// Reason why this worktree is prunable (directory missing, etc.), if any.
+    pub prunable: Option<String>,
+
+    /// Reason why this worktree is locked, if any.
+    pub locked: Option<String>,
 }
 
 impl Worktree {
     /// Check if this worktree's directory exists on disk.
     pub fn exists(&self) -> bool {
         self.path.exists()
+    }
+
+    /// Get the directory name of this worktree (last component of path).
+    pub fn name(&self) -> Option<&str> {
+        self.path.file_name().and_then(|s| s.to_str())
+    }
+
+    /// Check if this worktree is marked as prunable by git.
+    pub fn is_prunable(&self) -> bool {
+        self.prunable.is_some()
+    }
+
+    /// Check if this worktree is locked.
+    pub fn is_locked(&self) -> bool {
+        self.locked.is_some()
     }
 }
 
@@ -62,12 +83,24 @@ pub fn list_worktrees_from<P: AsRef<std::path::Path>>(
 /// worktree /path/to/another
 /// HEAD <sha>
 /// detached
+///
+/// worktree /path/to/missing
+/// HEAD <sha>
+/// branch refs/heads/feature
+/// prunable gitdir file points to non-existent location
+///
+/// worktree /path/to/locked
+/// HEAD <sha>
+/// branch refs/heads/wip
+/// locked reason for lock
 /// ```
 fn parse_porcelain_output(output: &str) -> Vec<Worktree> {
     let mut worktrees = Vec::new();
     let mut current_path: Option<PathBuf> = None;
     let mut current_head: Option<String> = None;
     let mut current_branch: Option<String> = None;
+    let mut current_prunable: Option<String> = None;
+    let mut current_locked: Option<String> = None;
     let mut is_first = true;
 
     for line in output.lines() {
@@ -79,6 +112,8 @@ fn parse_porcelain_output(output: &str) -> Vec<Worktree> {
                     head,
                     branch: current_branch.take(),
                     is_main: is_first,
+                    prunable: current_prunable.take(),
+                    locked: current_locked.take(),
                 });
                 is_first = false;
             }
@@ -93,6 +128,16 @@ fn parse_porcelain_output(output: &str) -> Vec<Worktree> {
             // Strip refs/heads/ prefix
             let branch = branch_ref.strip_prefix("refs/heads/").unwrap_or(branch_ref);
             current_branch = Some(branch.to_string());
+        } else if let Some(reason) = line.strip_prefix("prunable ") {
+            current_prunable = Some(reason.to_string());
+        } else if line == "prunable" {
+            // prunable without a reason
+            current_prunable = Some(String::new());
+        } else if let Some(reason) = line.strip_prefix("locked ") {
+            current_locked = Some(reason.to_string());
+        } else if line == "locked" {
+            // locked without a reason
+            current_locked = Some(String::new());
         }
         // "detached" line means no branch, which is the default None
     }
@@ -104,6 +149,8 @@ fn parse_porcelain_output(output: &str) -> Vec<Worktree> {
             head,
             branch: current_branch,
             is_main: is_first,
+            prunable: current_prunable,
+            locked: current_locked,
         });
     }
 
@@ -124,6 +171,8 @@ mod tests {
         assert_eq!(worktrees[0].head, "abc123");
         assert_eq!(worktrees[0].branch, Some("main".to_string()));
         assert!(worktrees[0].is_main);
+        assert!(!worktrees[0].is_prunable());
+        assert!(!worktrees[0].is_locked());
     }
 
     #[test]
@@ -218,5 +267,134 @@ branch refs/heads/feature-x
         let worktrees = worktrees.unwrap();
         assert_eq!(worktrees.len(), 1);
         assert!(worktrees[0].is_main);
+    }
+
+    #[test]
+    fn test_parse_prunable_worktree_with_reason() {
+        let output = r#"worktree /home/user/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/repo/.rooms/missing
+HEAD def456
+branch refs/heads/feature
+prunable gitdir file points to non-existent location
+"#;
+        let worktrees = parse_porcelain_output(output);
+
+        assert_eq!(worktrees.len(), 2);
+
+        // First worktree is not prunable
+        assert!(!worktrees[0].is_prunable());
+
+        // Second worktree is prunable with a reason
+        assert!(worktrees[1].is_prunable());
+        assert_eq!(
+            worktrees[1].prunable,
+            Some("gitdir file points to non-existent location".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_prunable_worktree_without_reason() {
+        let output = "worktree /home/user/repo/.rooms/orphan\nHEAD abc123\nbranch refs/heads/test\nprunable\n";
+        let worktrees = parse_porcelain_output(output);
+
+        assert_eq!(worktrees.len(), 1);
+        assert!(worktrees[0].is_prunable());
+        assert_eq!(worktrees[0].prunable, Some(String::new()));
+    }
+
+    #[test]
+    fn test_parse_locked_worktree_with_reason() {
+        let output = r#"worktree /home/user/repo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/repo/.rooms/locked-wt
+HEAD def456
+branch refs/heads/wip
+locked working on important changes
+"#;
+        let worktrees = parse_porcelain_output(output);
+
+        assert_eq!(worktrees.len(), 2);
+
+        // First worktree is not locked
+        assert!(!worktrees[0].is_locked());
+
+        // Second worktree is locked with a reason
+        assert!(worktrees[1].is_locked());
+        assert_eq!(
+            worktrees[1].locked,
+            Some("working on important changes".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_locked_worktree_without_reason() {
+        let output =
+            "worktree /home/user/repo/.rooms/locked\nHEAD abc123\nbranch refs/heads/test\nlocked\n";
+        let worktrees = parse_porcelain_output(output);
+
+        assert_eq!(worktrees.len(), 1);
+        assert!(worktrees[0].is_locked());
+        assert_eq!(worktrees[0].locked, Some(String::new()));
+    }
+
+    #[test]
+    fn test_parse_prunable_and_locked_worktree() {
+        // Git can report both prunable and locked for the same worktree
+        let output = "worktree /home/user/repo/.rooms/both\nHEAD abc123\nbranch refs/heads/test\nprunable missing directory\nlocked prevent cleanup\n";
+        let worktrees = parse_porcelain_output(output);
+
+        assert_eq!(worktrees.len(), 1);
+        assert!(worktrees[0].is_prunable());
+        assert!(worktrees[0].is_locked());
+        assert_eq!(worktrees[0].prunable, Some("missing directory".to_string()));
+        assert_eq!(worktrees[0].locked, Some("prevent cleanup".to_string()));
+    }
+
+    #[test]
+    fn test_worktree_name() {
+        let worktree = Worktree {
+            path: PathBuf::from("/home/user/repo/.rooms/quick-fox-a1b2"),
+            head: "abc123".to_string(),
+            branch: Some("quick-fox-a1b2".to_string()),
+            is_main: false,
+            prunable: None,
+            locked: None,
+        };
+
+        assert_eq!(worktree.name(), Some("quick-fox-a1b2"));
+    }
+
+    #[test]
+    fn test_worktree_name_main() {
+        let worktree = Worktree {
+            path: PathBuf::from("/home/user/repo"),
+            head: "abc123".to_string(),
+            branch: Some("main".to_string()),
+            is_main: true,
+            prunable: None,
+            locked: None,
+        };
+
+        assert_eq!(worktree.name(), Some("repo"));
+    }
+
+    #[test]
+    fn test_worktree_name_root_path() {
+        let worktree = Worktree {
+            path: PathBuf::from("/"),
+            head: "abc123".to_string(),
+            branch: Some("main".to_string()),
+            is_main: true,
+            prunable: None,
+            locked: None,
+        };
+
+        // Root path has no file_name
+        assert_eq!(worktree.name(), None);
     }
 }

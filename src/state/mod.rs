@@ -2,8 +2,14 @@
 #![allow(dead_code)]
 
 mod events;
+mod transient;
 
 pub use events::EventLog;
+#[allow(unused_imports)]
+pub use transient::{TransientRoomState, TransientStateStore};
+
+// Re-export RoomStatus from room::model for backward compatibility
+pub use crate::room::RoomStatus;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -28,33 +34,6 @@ pub enum StateError {
         path: String,
         source: std::io::Error,
     },
-}
-
-/// Room status in the lifecycle state machine.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum RoomStatus {
-    /// Room exists, no active background operation.
-    #[default]
-    Idle,
-
-    /// Creating worktree/branch.
-    Creating,
-
-    /// Running post-create commands.
-    PostCreateRunning,
-
-    /// Terminal ready, no active background ops.
-    Ready,
-
-    /// Last operation failed.
-    Error,
-
-    /// Removing room (worktree removal).
-    Deleting,
-
-    /// Worktree missing on disk / inconsistent state.
-    Orphaned,
 }
 
 /// A managed workspace backed by a git worktree.
