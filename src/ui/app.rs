@@ -98,6 +98,9 @@ pub struct App {
     /// PTY sessions per room (keyed by room name).
     pub sessions: HashMap<String, PtySession>,
 
+    /// Scrollback offset for the current session (0 = at bottom, >0 = scrolled up).
+    pub scrollback_offset: usize,
+
     /// Last known terminal size for resize detection.
     pub last_size: (u16, u16),
 
@@ -152,6 +155,7 @@ impl App {
             prompt: PromptState::default(),
             confirm: ConfirmState::default(),
             sessions: HashMap::new(),
+            scrollback_offset: 0,
             last_size: (0, 0),
             post_create_handles: Vec::new(),
             event_log,
@@ -249,6 +253,15 @@ impl App {
             for session in self.sessions.values_mut() {
                 // resize() already checks if dimensions changed and skips if same
                 session.resize(cols, rows);
+            }
+
+            // Apply scrollback offset to the current session
+            if let Some(room_info) = self.selected_room_info() {
+                let room_name = room_info.name.clone();
+                let offset = self.scrollback_offset;
+                if let Some(session) = self.sessions.get_mut(&room_name) {
+                    session.screen_mut().set_scrollback(offset);
+                }
             }
 
             // Draw UI
@@ -556,6 +569,49 @@ impl App {
     }
 
     fn handle_main_scene_key(&mut self, key: KeyEvent) {
+        // Handle scrollback navigation keys (don't forward to PTY)
+        match key.code {
+            KeyCode::PageUp => {
+                if let Some(session) = self.current_session() {
+                    let screen = session.screen();
+                    let (rows, _cols) = screen.size();
+                    // Scroll up by one page (screen height)
+                    self.scrollback_offset = (self.scrollback_offset + rows as usize).min(1000);
+                }
+                return;
+            }
+            KeyCode::PageDown => {
+                if let Some(session) = self.current_session() {
+                    let screen = session.screen();
+                    let (rows, _cols) = screen.size();
+                    // Scroll down by one page (screen height)
+                    self.scrollback_offset = self.scrollback_offset.saturating_sub(rows as usize);
+                }
+                return;
+            }
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ctrl+U: scroll up by half page
+                if let Some(session) = self.current_session() {
+                    let screen = session.screen();
+                    let (rows, _cols) = screen.size();
+                    self.scrollback_offset =
+                        (self.scrollback_offset + (rows as usize / 2)).min(1000);
+                }
+                return;
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ctrl+D: scroll down by half page
+                if let Some(session) = self.current_session() {
+                    let screen = session.screen();
+                    let (rows, _cols) = screen.size();
+                    self.scrollback_offset =
+                        self.scrollback_offset.saturating_sub(rows as usize / 2);
+                }
+                return;
+            }
+            _ => {}
+        }
+
         // Convert key event to bytes and send to PTY
         let bytes = match key.code {
             KeyCode::Char(c) => {
@@ -607,6 +663,9 @@ impl App {
         };
 
         // Send input to PTY
+        // Reset scrollback when user types (they're interacting with live terminal)
+        self.scrollback_offset = 0;
+
         if let Some(session) = self.current_session_mut()
             && let Err(e) = session.write(&bytes)
         {
@@ -617,12 +676,22 @@ impl App {
     fn handle_mouse(&mut self, mouse: MouseEvent) {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
-                // TODO: Implement scrollback viewing with vt100
-                // For now, scrolling is handled by the PTY itself
+                // Only scroll in terminal mode
+                if self.focus == Focus::MainScene
+                    && let Some(session) = self.current_session()
+                {
+                    let screen = session.screen();
+                    let (_rows, _cols) = screen.size();
+                    // Scroll up by 3 lines at a time
+                    self.scrollback_offset = (self.scrollback_offset + 3).min(1000);
+                }
             }
             MouseEventKind::ScrollDown => {
-                // TODO: Implement scrollback viewing with vt100
-                // For now, scrolling is handled by the PTY itself
+                // Only scroll in terminal mode
+                if self.focus == Focus::MainScene {
+                    // Scroll down by 3 lines, minimum 0 (at bottom)
+                    self.scrollback_offset = self.scrollback_offset.saturating_sub(3);
+                }
             }
             _ => {}
         }
@@ -653,6 +722,7 @@ impl App {
         let total = self.total_items();
         if total > 0 {
             self.selected_index = (self.selected_index + 1) % total;
+            self.scrollback_offset = 0; // Reset scrollback when changing rooms
         }
     }
 
@@ -660,6 +730,7 @@ impl App {
         let total = self.total_items();
         if total > 0 {
             self.selected_index = self.selected_index.checked_sub(1).unwrap_or(total - 1);
+            self.scrollback_offset = 0; // Reset scrollback when changing rooms
         }
     }
 

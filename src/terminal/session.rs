@@ -106,6 +106,11 @@ impl PtySession {
         self.parser.screen()
     }
 
+    /// Get mutable access to the screen from the parser.
+    pub fn screen_mut(&mut self) -> &mut vt100::Screen {
+        self.parser.screen_mut()
+    }
+
     /// Write input to the PTY.
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
         self.writer

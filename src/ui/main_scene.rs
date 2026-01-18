@@ -72,7 +72,11 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let title = if let Some(room) = app.selected_room() {
-        format!(" {} ", room.name)
+        if app.scrollback_offset > 0 {
+            format!(" {} [↑{}] ", room.name, app.scrollback_offset)
+        } else {
+            format!(" {} ", room.name)
+        }
     } else {
         " Terminal ".to_string()
     };
@@ -130,9 +134,9 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
 
-        // Show cursor if focused and visible
+        // Show cursor if focused, visible, and not scrolled up (viewing history)
         let (cursor_row, cursor_col) = screen.cursor_position();
-        if is_focused && !screen.hide_cursor() {
+        if is_focused && !screen.hide_cursor() && app.scrollback_offset == 0 {
             let cursor_x = inner.x + cursor_col;
             let cursor_y = inner.y + cursor_row;
             if cursor_x < inner.x + inner.width && cursor_y < inner.y + inner.height {
