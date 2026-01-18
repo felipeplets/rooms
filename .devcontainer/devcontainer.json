@@ -1,6 +1,6 @@
 {
   "name": "rooms - Rust TUI Development",
-  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/rust:2-trixie",
 
   "features": {
     "ghcr.io/devcontainers/features/git:1": {
