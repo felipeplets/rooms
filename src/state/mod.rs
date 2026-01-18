@@ -137,13 +137,13 @@ impl RoomsState {
         let path = path.as_ref();
 
         // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent).map_err(|e| StateError::CreateDir {
-                    path: parent.to_string_lossy().to_string(),
-                    source: e,
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|e| StateError::CreateDir {
+                path: parent.to_string_lossy().to_string(),
+                source: e,
+            })?;
         }
 
         // Write to temp file first
