@@ -108,30 +108,42 @@ fn is_worktree_in_rooms_dir(worktree: &Worktree, rooms_dir_canonical: &Path) -> 
         return wt_canonical.starts_with(rooms_dir_canonical);
     }
 
-    // Fallback for prunable worktrees (path might not exist on disk)
-    // Use the original paths but normalize them by stripping trailing slashes
-    // and handling . and .. components where possible
-    if worktree.is_prunable() {
-        // For non-existent paths, compare normalized string representations
-        let wt_str = normalize_path_string(&worktree.path);
-        let rooms_str = normalize_path_string(rooms_dir_canonical);
-        return wt_str.starts_with(&rooms_str);
-    }
-
-    false
+    // Fallback when canonicalization fails (e.g., non-existent path, permissions,
+    // or symlink resolution issues). Use the original paths but normalize them by
+    // stripping trailing slashes for a best-effort comparison.
+    // For non-existent or inaccessible paths, compare normalized string representations.
+    let wt_str = normalize_path_string(&worktree.path);
+    let rooms_str = normalize_path_string(rooms_dir_canonical);
+    wt_str.starts_with(&rooms_str)
 }
 
 /// Normalize a path to a string for comparison.
 ///
 /// This handles:
-/// - Trailing slashes
-/// - Converts to absolute-like representation for comparison
+/// - Trailing slashes (both Unix `/` and Windows `\`)
+/// - Redundant path separators (e.g., `/path//to/dir` -> `/path/to/dir`)
 fn normalize_path_string(path: &Path) -> String {
-    // Get the path as a string and ensure consistent formatting
     let path_str = path.to_string_lossy();
 
-    // Remove trailing slashes for consistent comparison
-    path_str.trim_end_matches('/').to_string()
+    // Replace redundant separators and normalize to forward slashes for comparison
+    let normalized: String = path_str
+        .chars()
+        .fold((String::new(), false), |(mut acc, was_sep), c| {
+            let is_sep = c == '/' || c == '\\';
+            if is_sep {
+                if !was_sep {
+                    acc.push('/');
+                }
+                (acc, true)
+            } else {
+                acc.push(c);
+                (acc, false)
+            }
+        })
+        .0;
+
+    // Remove trailing slashes
+    normalized.trim_end_matches('/').to_string()
 }
 
 #[cfg(test)]
@@ -215,6 +227,7 @@ mod tests {
 
     #[test]
     fn test_normalize_path_string() {
+        // Basic trailing slash removal
         assert_eq!(
             normalize_path_string(&PathBuf::from("/home/user/repo/.rooms/")),
             "/home/user/repo/.rooms"
@@ -223,8 +236,28 @@ mod tests {
             normalize_path_string(&PathBuf::from("/home/user/repo/.rooms")),
             "/home/user/repo/.rooms"
         );
+
+        // Multiple trailing slashes
         assert_eq!(
             normalize_path_string(&PathBuf::from("/home/user/repo/.rooms///")),
+            "/home/user/repo/.rooms"
+        );
+
+        // Redundant separators in the middle
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("/home//user///repo/.rooms")),
+            "/home/user/repo/.rooms"
+        );
+
+        // Windows-style backslashes (normalized to forward slashes)
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("C:\\Users\\test\\repo\\.rooms\\")),
+            "C:/Users/test/repo/.rooms"
+        );
+
+        // Mixed separators
+        assert_eq!(
+            normalize_path_string(&PathBuf::from("/home\\user//repo\\.rooms/")),
             "/home/user/repo/.rooms"
         );
     }
@@ -313,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_rooms_applies_transient_state() {
+    fn test_discover_rooms_applies_transient_state_creating() {
         let repo = TestRepo::new();
         let rooms_dir = repo.create_rooms_dir();
         repo.add_worktree(&rooms_dir, "creating-room");
@@ -330,6 +363,65 @@ mod tests {
         assert_eq!(rooms[0].name, "creating-room");
         // Transient status should override the default Ready status
         assert_eq!(rooms[0].status, RoomStatus::Creating);
+    }
+
+    #[test]
+    fn test_discover_rooms_applies_transient_state_error() {
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        repo.add_worktree(&rooms_dir, "error-room");
+
+        // Set transient error state with message
+        let mut transient = TransientStateStore::new();
+        transient.set_error("error-room", "Post-create command failed".to_string());
+
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "error-room");
+        assert_eq!(rooms[0].status, RoomStatus::Error);
+        assert_eq!(
+            rooms[0].last_error,
+            Some("Post-create command failed".to_string())
+        );
+    }
+
+    #[test]
+    fn test_discover_rooms_applies_transient_state_deleting() {
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        repo.add_worktree(&rooms_dir, "deleting-room");
+
+        let mut transient = TransientStateStore::new();
+        transient.set_status("deleting-room", RoomStatus::Deleting);
+
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "deleting-room");
+        assert_eq!(rooms[0].status, RoomStatus::Deleting);
+    }
+
+    #[test]
+    fn test_discover_rooms_applies_transient_state_post_create_running() {
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        repo.add_worktree(&rooms_dir, "post-create-room");
+
+        let mut transient = TransientStateStore::new();
+        transient.set_status("post-create-room", RoomStatus::PostCreateRunning);
+
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+
+        assert!(result.is_ok());
+        let rooms = result.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].name, "post-create-room");
+        assert_eq!(rooms[0].status, RoomStatus::PostCreateRunning);
     }
 
     #[test]
