@@ -95,8 +95,7 @@
 
         // Language-specific settings
         "[rust]": {
-          "editor.defaultFormatter": "rust-lang.rust-analyzer",
-          "editor.formatOnSave": true
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
         },
         "[toml]": {
           "editor.defaultFormatter": "tamasfe.even-better-toml"
@@ -120,10 +119,6 @@
   "mounts": [
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
   ],
-
-  "forwardPorts": [],
-
-  "portsAttributes": {},
 
   "updateContentCommand": "cargo fetch"
 }

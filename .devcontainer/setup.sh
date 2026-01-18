@@ -36,8 +36,8 @@ fi
 echo "📋 Rust toolchain information:"
 rustc --version
 cargo --version
-rustfmt --version
-cargo clippy --version
+rustfmt --version || echo "⚠️  rustfmt not available."
+cargo clippy --version || echo "⚠️  cargo clippy not available."
 
 # Install cargo dependencies
 echo "📚 Fetching cargo dependencies..."

@@ -56,7 +56,7 @@ The devcontainer includes optimized settings for:
 ### VS Code Dev Containers (Local)
 
 1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
-2. Install the [Remote - Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
+2. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
 3. Open the repository in VS Code
 4. Press `F1` and select **Dev Containers: Reopen in Container**
 5. Wait for the container to build and initialize
