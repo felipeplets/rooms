@@ -164,7 +164,9 @@ impl App {
     /// This re-discovers rooms by calling `git worktree list` and merging
     /// with transient state. The current selection is preserved if the
     /// selected room still exists.
-    pub fn refresh_rooms(&mut self) {
+    ///
+    /// Returns `true` if the refresh succeeded, `false` if it failed.
+    pub fn refresh_rooms(&mut self) -> bool {
         let selected_name = self.rooms.get(self.selected_index).map(|r| r.name.clone());
 
         match discover_rooms(&self.repo_root, &self.rooms_dir, &self.transient) {
@@ -184,9 +186,11 @@ impl App {
                 } else if self.selected_index >= self.rooms.len() {
                     self.selected_index = self.rooms.len() - 1;
                 }
+                true
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to refresh rooms: {}", e));
+                false
             }
         }
     }
@@ -541,6 +545,11 @@ impl App {
             }
             KeyCode::Char('r') => {
                 self.start_room_rename();
+            }
+            KeyCode::Char('R') => {
+                if self.refresh_rooms() {
+                    self.status_message = Some("Rooms refreshed".to_string());
+                }
             }
             _ => {}
         }
