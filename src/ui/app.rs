@@ -254,6 +254,13 @@ impl App {
             // Draw UI
             terminal.draw(|frame| self.render(frame))?;
 
+            // Show cursor if appropriate (prompts or focused PTY with visible cursor)
+            if self.should_show_cursor() {
+                terminal.show_cursor()?;
+            } else {
+                terminal.hide_cursor()?;
+            }
+
             // Handle input (with 50ms timeout for PTY responsiveness)
             if event::poll(Duration::from_millis(50))? {
                 match event::read()? {
@@ -1042,5 +1049,24 @@ impl App {
     pub fn current_session_mut(&mut self) -> Option<&mut PtySession> {
         let room_name = self.selected_room_info()?.name.clone();
         self.sessions.get_mut(&room_name)
+    }
+
+    /// Determine if the terminal cursor should be visible.
+    fn should_show_cursor(&self) -> bool {
+        // Show cursor when a prompt is active
+        if self.prompt.is_active() {
+            return true;
+        }
+
+        // Show cursor when main scene is focused and has a PTY with visible cursor
+        if self.focus == Focus::MainScene
+            && self.main_scene_visible
+            && let Some(session) = self.current_session()
+        {
+            let screen = session.screen();
+            return !screen.hide_cursor();
+        }
+
+        false
     }
 }
