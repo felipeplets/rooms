@@ -24,7 +24,13 @@ fi
 
 # Install Rust components (if not already present)
 echo "🦀 Setting up Rust toolchain..."
-rustup component add rustfmt clippy 2>/dev/null || echo "Components already installed"
+set +e
+rustup component add rustfmt clippy 2>/dev/null
+rustup_status=$?
+set -e
+if [ "$rustup_status" -ne 0 ]; then
+    echo "⚠️  Failed to add Rust components (rustfmt, clippy). Continuing without them."
+fi
 
 # Verify Rust installation
 echo "📋 Rust toolchain information:"
