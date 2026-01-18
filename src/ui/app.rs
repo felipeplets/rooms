@@ -25,10 +25,10 @@ use uuid::Uuid;
 use crate::config::Config;
 use crate::git::Worktree;
 use crate::room::{
-    create_room, remove_room, rename_room, run_post_create_commands, CreateRoomOptions,
-    DirtyStatus, PostCreateHandle,
+    create_room, discover_rooms, remove_room, rename_room, run_post_create_commands,
+    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo,
 };
-use crate::state::{EventLog, RoomStatus, RoomsState};
+use crate::state::{EventLog, RoomStatus, RoomsState, TransientStateStore};
 use crate::terminal::PtySession;
 
 use super::confirm::{render_confirm, ConfirmState};
@@ -56,8 +56,14 @@ pub struct App {
     /// Application configuration.
     pub config: Config,
 
-    /// Current rooms state.
+    /// Current rooms state (legacy, will be removed).
     pub state: RoomsState,
+
+    /// Discovered rooms from git worktrees.
+    pub rooms: Vec<RoomInfo>,
+
+    /// Transient state store for in-memory room states.
+    pub transient: TransientStateStore,
 
     /// Discovered git worktrees.
     pub worktrees: Vec<Worktree>,
@@ -89,8 +95,8 @@ pub struct App {
     /// Current confirmation dialog state.
     pub confirm: ConfirmState,
 
-    /// PTY sessions per room (keyed by room UUID).
-    pub sessions: HashMap<Uuid, PtySession>,
+    /// PTY sessions per room (keyed by room name).
+    pub sessions: HashMap<String, PtySession>,
 
     /// Last known terminal size for resize detection.
     pub last_size: (u16, u16),
@@ -116,11 +122,25 @@ impl App {
         skip_post_create: bool,
     ) -> Self {
         let event_log = EventLog::new(&rooms_dir);
+        let transient = TransientStateStore::new();
+
+        // Discover rooms from git worktrees
+        let rooms = match discover_rooms(&repo_root, &rooms_dir, &transient) {
+            Ok(rooms) => rooms,
+            Err(e) => {
+                // Log the error for debugging - the app will start with empty rooms
+                event_log.log_error(None, &format!("Failed to discover rooms at startup: {}", e));
+                Vec::new()
+            }
+        };
+
         Self {
             repo_root,
             rooms_dir,
             config,
             state,
+            rooms,
+            transient,
             worktrees,
             selected_index: 0,
             focus: Focus::default(),
@@ -136,6 +156,38 @@ impl App {
             post_create_handles: Vec::new(),
             event_log,
             skip_post_create,
+        }
+    }
+
+    /// Refresh the rooms list from git worktrees.
+    ///
+    /// This re-discovers rooms by calling `git worktree list` and merging
+    /// with transient state. The current selection is preserved if the
+    /// selected room still exists.
+    pub fn refresh_rooms(&mut self) {
+        let selected_name = self.rooms.get(self.selected_index).map(|r| r.name.clone());
+
+        match discover_rooms(&self.repo_root, &self.rooms_dir, &self.transient) {
+            Ok(rooms) => {
+                self.rooms = rooms;
+
+                // Restore selection if the room still exists
+                if let Some(name) = selected_name {
+                    if let Some(idx) = self.rooms.iter().position(|r| r.name == name) {
+                        self.selected_index = idx;
+                    }
+                }
+
+                // Ensure selected_index is valid for the current rooms list
+                if self.rooms.is_empty() {
+                    self.selected_index = 0;
+                } else if self.selected_index >= self.rooms.len() {
+                    self.selected_index = self.rooms.len() - 1;
+                }
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to refresh rooms: {}", e));
+            }
         }
     }
 
@@ -465,7 +517,7 @@ impl App {
                 self.select_previous();
             }
             KeyCode::Enter => {
-                if self.main_scene_visible && self.selected_room().is_some() {
+                if self.main_scene_visible && self.selected_room_info().is_some() {
                     // Start PTY session if not already running
                     let (cols, rows) = self.calculate_pty_size();
                     self.get_or_create_session(cols, rows);
@@ -604,12 +656,22 @@ impl App {
 
     /// Get total number of selectable items (rooms).
     pub fn total_items(&self) -> usize {
-        self.state.rooms.len()
+        self.rooms.len()
     }
 
-    /// Get the currently selected room, if any.
+    /// Get the currently selected room (RoomInfo), if any.
+    pub fn selected_room_info(&self) -> Option<&RoomInfo> {
+        self.rooms.get(self.selected_index)
+    }
+
+    /// Get the currently selected room from state (legacy), if any.
+    ///
+    /// Note: `selected_index` is based on `self.rooms` (RoomInfo list from git worktrees).
+    /// This method maps the selection to the legacy `state.rooms` list by looking up
+    /// the room by name.
     pub fn selected_room(&self) -> Option<&crate::state::Room> {
-        self.state.rooms.get(self.selected_index)
+        let info = self.selected_room_info()?;
+        self.state.rooms.iter().find(|room| room.name == info.name)
     }
 
     /// Create a new room silently (with generated name).
@@ -618,20 +680,35 @@ impl App {
 
         match create_room(&self.rooms_dir, &mut self.state, options) {
             Ok(room) => {
+                let room_name = room.name.clone();
+                let room_id = room.id;
+                let room_path = room.path.clone();
+
+                // Refresh rooms from git worktrees
+                self.refresh_rooms();
+
                 // Select the new room
-                self.selected_index = self.state.rooms.len().saturating_sub(1);
+                if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
+                    self.selected_index = idx;
+                } else {
+                    // Room not found after refresh - this shouldn't happen but handle gracefully
+                    self.event_log.log_error(
+                        Some(&room_name),
+                        "Room created but not found in worktree list after refresh",
+                    );
+                }
 
                 // Log the event
-                self.event_log.log_room_created(&room.name);
+                self.event_log.log_room_created(&room_name);
 
                 // Start post-create commands if configured
-                self.start_post_create(&room.name, room.id, room.path.clone());
+                self.start_post_create(&room_name, room_id, room_path);
 
-                // Save state
+                // Save state (legacy)
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room created but failed to save: {}", e));
                 } else {
-                    self.status_message = Some(format!("Created room: {}", room.name));
+                    self.status_message = Some(format!("Created room: {}", room_name));
                 }
             }
             Err(e) => {
@@ -651,20 +728,35 @@ impl App {
 
         match create_room(&self.rooms_dir, &mut self.state, options) {
             Ok(room) => {
+                let room_name = room.name.clone();
+                let room_id = room.id;
+                let room_path = room.path.clone();
+
+                // Refresh rooms from git worktrees
+                self.refresh_rooms();
+
                 // Select the new room
-                self.selected_index = self.state.rooms.len().saturating_sub(1);
+                if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
+                    self.selected_index = idx;
+                } else {
+                    // Room not found after refresh - this shouldn't happen but handle gracefully
+                    self.event_log.log_error(
+                        Some(&room_name),
+                        "Room created but not found in worktree list after refresh",
+                    );
+                }
 
                 // Log the event
-                self.event_log.log_room_created(&room.name);
+                self.event_log.log_room_created(&room_name);
 
                 // Start post-create commands if configured
-                self.start_post_create(&room.name, room.id, room.path.clone());
+                self.start_post_create(&room_name, room_id, room_path);
 
-                // Save state
+                // Save state (legacy)
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room created but failed to save: {}", e));
                 } else {
-                    self.status_message = Some(format!("Created room: {}", room.name));
+                    self.status_message = Some(format!("Created room: {}", room_name));
                 }
             }
             Err(e) => {
@@ -829,26 +921,19 @@ impl App {
 
     /// Delete the room with the given name.
     fn delete_room(&mut self, room_name: &str) {
-        // Get room ID before deletion to clean up session
-        let room_id = self.state.find_by_name(room_name).map(|r| r.id);
-
         // Use force=true since we already warned about dirty status
         match remove_room(&mut self.state, room_name, true) {
             Ok(name) => {
-                // Remove PTY session if exists
-                if let Some(id) = room_id {
-                    self.sessions.remove(&id);
-                }
+                // Remove PTY session if exists (keyed by room name)
+                self.sessions.remove(&name);
 
                 // Log the event
                 self.event_log.log_room_deleted(&name);
 
-                // Adjust selection if needed
-                if self.selected_index >= self.state.rooms.len() && self.selected_index > 0 {
-                    self.selected_index -= 1;
-                }
+                // Refresh rooms from git worktrees
+                self.refresh_rooms();
 
-                // Save state
+                // Save state (legacy)
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room deleted but failed to save: {}", e));
                 } else {
@@ -884,9 +969,6 @@ impl App {
             return;
         }
 
-        // Get room ID before rename to clean up session afterward
-        let room_id = self.state.find_by_name(old_name).map(|r| r.id);
-
         match rename_room(
             &self.repo_root,
             &self.rooms_dir,
@@ -895,15 +977,16 @@ impl App {
             new_name,
         ) {
             Ok(_) => {
-                // Remove PTY session since the working directory changed
-                if let Some(id) = room_id {
-                    self.sessions.remove(&id);
-                }
+                // Remove PTY session since the working directory changed (keyed by old name)
+                self.sessions.remove(old_name);
 
                 // Log the event
                 self.event_log.log_room_renamed(old_name, new_name);
 
-                // Save state
+                // Refresh rooms from git worktrees
+                self.refresh_rooms();
+
+                // Save state (legacy)
                 if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
                     self.status_message = Some(format!("Room renamed but failed to save: {}", e));
                 } else {
@@ -921,11 +1004,11 @@ impl App {
     pub fn get_or_create_session(&mut self, cols: u16, rows: u16) -> Option<&mut PtySession> {
         use std::collections::hash_map::Entry;
 
-        let room = self.selected_room()?;
-        let room_id = room.id;
+        let room = self.selected_room_info()?;
+        let room_name = room.name.clone();
         let room_path = room.path.clone();
 
-        if let Entry::Vacant(entry) = self.sessions.entry(room_id) {
+        if let Entry::Vacant(entry) = self.sessions.entry(room_name.clone()) {
             match PtySession::new(cols, rows, &room_path) {
                 Ok(session) => {
                     entry.insert(session);
@@ -937,18 +1020,18 @@ impl App {
             }
         }
 
-        self.sessions.get_mut(&room_id)
+        self.sessions.get_mut(&room_name)
     }
 
     /// Get the PTY session for the selected room, if it exists.
     pub fn current_session(&self) -> Option<&PtySession> {
-        let room = self.selected_room()?;
-        self.sessions.get(&room.id)
+        let room = self.selected_room_info()?;
+        self.sessions.get(&room.name)
     }
 
     /// Get the PTY session for the selected room mutably, if it exists.
     pub fn current_session_mut(&mut self) -> Option<&mut PtySession> {
-        let room_id = self.selected_room()?.id;
-        self.sessions.get_mut(&room_id)
+        let room_name = self.selected_room_info()?.name.clone();
+        self.sessions.get_mut(&room_name)
     }
 }
