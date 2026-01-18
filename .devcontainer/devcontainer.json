@@ -58,7 +58,6 @@
           "+stable"
         ],
         "rust-analyzer.cargo.features": "all",
-        "rust-analyzer.inlayHints.enable": true,
         "rust-analyzer.inlayHints.parameterHints.enable": true,
         "rust-analyzer.inlayHints.typeHints.enable": true,
 
