@@ -37,6 +37,9 @@ use super::main_scene::render_main_scene;
 use super::prompt::{PromptState, render_prompt};
 use super::sidebar::render_sidebar;
 
+/// Maximum scrollback lines for the PTY terminal.
+const SCROLLBACK_LINES: usize = 1000;
+
 /// Which panel currently has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Focus {
@@ -257,6 +260,7 @@ impl App {
 
             // Apply scrollback offset to the current session
             if let Some(room_info) = self.selected_room_info() {
+                // Clone is necessary to avoid holding a borrow while mutably accessing sessions
                 let room_name = room_info.name.clone();
                 let offset = self.scrollback_offset;
                 if let Some(session) = self.sessions.get_mut(&room_name) {
@@ -576,7 +580,8 @@ impl App {
                     let screen = session.screen();
                     let (rows, _cols) = screen.size();
                     // Scroll up by one page (screen height)
-                    self.scrollback_offset = (self.scrollback_offset + rows as usize).min(1000);
+                    self.scrollback_offset =
+                        (self.scrollback_offset + rows as usize).min(SCROLLBACK_LINES);
                 }
                 return;
             }
@@ -595,7 +600,7 @@ impl App {
                     let screen = session.screen();
                     let (rows, _cols) = screen.size();
                     self.scrollback_offset =
-                        (self.scrollback_offset + (rows as usize / 2)).min(1000);
+                        (self.scrollback_offset + (rows as usize / 2)).min(SCROLLBACK_LINES);
                 }
                 return;
             }
@@ -678,17 +683,17 @@ impl App {
             MouseEventKind::ScrollUp => {
                 // Only scroll in terminal mode
                 if self.focus == Focus::MainScene
-                    && let Some(session) = self.current_session()
+                    && let Some(_session) = self.current_session()
                 {
-                    let screen = session.screen();
-                    let (_rows, _cols) = screen.size();
                     // Scroll up by 3 lines at a time
-                    self.scrollback_offset = (self.scrollback_offset + 3).min(1000);
+                    self.scrollback_offset = (self.scrollback_offset + 3).min(SCROLLBACK_LINES);
                 }
             }
             MouseEventKind::ScrollDown => {
                 // Only scroll in terminal mode
-                if self.focus == Focus::MainScene {
+                if self.focus == Focus::MainScene
+                    && let Some(_session) = self.current_session()
+                {
                     // Scroll down by 3 lines, minimum 0 (at bottom)
                     self.scrollback_offset = self.scrollback_offset.saturating_sub(3);
                 }
