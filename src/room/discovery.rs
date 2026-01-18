@@ -3,9 +3,6 @@
 //! This module provides functions to discover rooms by querying git worktrees
 //! and merging the results with transient state.
 
-// Allow dead code for now - these utilities will be used in later implementation steps
-#![allow(dead_code)]
-
 use std::path::Path;
 
 use thiserror::Error;

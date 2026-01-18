@@ -542,6 +542,10 @@ impl App {
             KeyCode::Char('r') => {
                 self.start_room_rename();
             }
+            KeyCode::Char('R') => {
+                self.refresh_rooms();
+                self.status_message = Some("Rooms refreshed".to_string());
+            }
             _ => {}
         }
     }
