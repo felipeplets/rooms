@@ -66,6 +66,10 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::raw("Rename room"),
         ]),
         Line::from(vec![
+            Span::styled("  R       ", Style::default().fg(Color::Yellow)),
+            Span::raw("Refresh room list"),
+        ]),
+        Line::from(vec![
             Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
             Span::raw("Toggle sidebar visibility"),
         ]),
