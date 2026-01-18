@@ -125,7 +125,14 @@ impl App {
         let transient = TransientStateStore::new();
 
         // Discover rooms from git worktrees
-        let rooms = discover_rooms(&repo_root, &rooms_dir, &transient).unwrap_or_default();
+        let rooms = match discover_rooms(&repo_root, &rooms_dir, &transient) {
+            Ok(rooms) => rooms,
+            Err(e) => {
+                // Log the error for debugging - the app will start with empty rooms
+                event_log.log_error(None, &format!("Failed to discover rooms at startup: {}", e));
+                Vec::new()
+            }
+        };
 
         Self {
             repo_root,
@@ -168,9 +175,14 @@ impl App {
                 if let Some(name) = selected_name {
                     if let Some(idx) = self.rooms.iter().position(|r| r.name == name) {
                         self.selected_index = idx;
-                    } else if self.selected_index >= self.rooms.len() && !self.rooms.is_empty() {
-                        self.selected_index = self.rooms.len() - 1;
                     }
+                }
+
+                // Ensure selected_index is valid for the current rooms list
+                if self.rooms.is_empty() {
+                    self.selected_index = 0;
+                } else if self.selected_index >= self.rooms.len() {
+                    self.selected_index = self.rooms.len() - 1;
                 }
             }
             Err(e) => {
@@ -653,8 +665,13 @@ impl App {
     }
 
     /// Get the currently selected room from state (legacy), if any.
+    ///
+    /// Note: `selected_index` is based on `self.rooms` (RoomInfo list from git worktrees).
+    /// This method maps the selection to the legacy `state.rooms` list by looking up
+    /// the room by name.
     pub fn selected_room(&self) -> Option<&crate::state::Room> {
-        self.state.rooms.get(self.selected_index)
+        let info = self.selected_room_info()?;
+        self.state.rooms.iter().find(|room| room.name == info.name)
     }
 
     /// Create a new room silently (with generated name).
@@ -673,6 +690,12 @@ impl App {
                 // Select the new room
                 if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
                     self.selected_index = idx;
+                } else {
+                    // Room not found after refresh - this shouldn't happen but handle gracefully
+                    self.event_log.log_error(
+                        Some(&room_name),
+                        "Room created but not found in worktree list after refresh",
+                    );
                 }
 
                 // Log the event
@@ -715,6 +738,12 @@ impl App {
                 // Select the new room
                 if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
                     self.selected_index = idx;
+                } else {
+                    // Room not found after refresh - this shouldn't happen but handle gracefully
+                    self.event_log.log_error(
+                        Some(&room_name),
+                        "Room created but not found in worktree list after refresh",
+                    );
                 }
 
                 // Log the event
