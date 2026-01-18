@@ -11,9 +11,6 @@ pub use transient::{TransientRoomState, TransientStateStore};
 // Re-export RoomStatus from room::model for backward compatibility
 pub use crate::room::RoomStatus;
 
-// Re-export RoomStatus from room::model for backward compatibility
-pub use crate::room::RoomStatus;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
