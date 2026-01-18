@@ -8,10 +8,10 @@ mod post_create;
 mod remove;
 mod rename;
 
-pub use create::{create_room, CreateRoomError, CreateRoomOptions};
-pub use discovery::{discover_rooms, DiscoveryError};
+pub use create::{CreateRoomError, CreateRoomOptions, create_room};
+pub use discovery::{DiscoveryError, discover_rooms};
 pub use model::{RoomInfo, RoomStatus};
 pub use naming::generate_room_name;
-pub use post_create::{run_post_create_commands, PostCreateHandle, PostCreateResult};
-pub use remove::{remove_room, DirtyStatus, RemoveRoomError};
-pub use rename::{rename_room, RenameRoomError};
+pub use post_create::{PostCreateHandle, PostCreateResult, run_post_create_commands};
+pub use remove::{DirtyStatus, RemoveRoomError, remove_room};
+pub use rename::{RenameRoomError, rename_room};

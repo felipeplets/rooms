@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use ratatui::Frame;
 
 use crate::room::DirtyStatus;
 
@@ -131,35 +131,35 @@ pub fn render_confirm(frame: &mut Frame, area: Rect, confirm: &ConfirmState) {
     ];
 
     // Add dirty warning if applicable
-    if let Some(status) = dirty_status {
-        if status.is_dirty {
-            lines.push(Line::from(vec![Span::styled(
-                "WARNING: Uncommitted changes detected!",
+    if let Some(status) = dirty_status
+        && status.is_dirty
+    {
+        lines.push(Line::from(vec![Span::styled(
+            "WARNING: Uncommitted changes detected!",
+            Style::default().fg(Color::Yellow),
+        )]));
+        lines.push(Line::from(vec![
+            Span::styled("  Modified: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                status.modified_count.to_string(),
                 Style::default().fg(Color::Yellow),
-            )]));
-            lines.push(Line::from(vec![
-                Span::styled("  Modified: ", Style::default().fg(Color::Gray)),
-                Span::styled(
-                    status.modified_count.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled("  Untracked: ", Style::default().fg(Color::Gray)),
-                Span::styled(
-                    status.untracked_count.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]));
-            if !status.summary.is_empty() {
-                lines.push(Line::from(""));
-                for file_line in status.summary.lines().take(3) {
-                    lines.push(Line::from(vec![Span::styled(
-                        format!("  {}", file_line),
-                        Style::default().fg(Color::DarkGray),
-                    )]));
-                }
-            }
+            ),
+            Span::styled("  Untracked: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                status.untracked_count.to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+        if !status.summary.is_empty() {
             lines.push(Line::from(""));
+            for file_line in status.summary.lines().take(3) {
+                lines.push(Line::from(vec![Span::styled(
+                    format!("  {}", file_line),
+                    Style::default().fg(Color::DarkGray),
+                )]));
+            }
         }
+        lines.push(Line::from(""));
     }
 
     lines.push(Line::from(vec![Span::styled(

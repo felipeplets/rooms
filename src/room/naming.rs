@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use rand::prelude::IndexedRandom;
 use rand::Rng;
+use rand::prelude::IndexedRandom;
 
 /// Adjectives for room name generation.
 const ADJECTIVES: &[&str] = &[
@@ -141,9 +141,10 @@ mod tests {
         let name = generate_room_name();
 
         // Should be lowercase with hyphens
-        assert!(name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        );
 
         // Should have format: word-word-xxxx
         let parts: Vec<&str> = name.split('-').collect();

@@ -12,29 +12,29 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::Terminal;
 
 use uuid::Uuid;
 
 use crate::config::Config;
 use crate::git::Worktree;
 use crate::room::{
-    create_room, discover_rooms, remove_room, rename_room, run_post_create_commands,
-    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo,
+    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo, create_room, discover_rooms,
+    remove_room, rename_room, run_post_create_commands,
 };
 use crate::state::{EventLog, RoomStatus, RoomsState, TransientStateStore};
 use crate::terminal::PtySession;
 
-use super::confirm::{render_confirm, ConfirmState};
+use super::confirm::{ConfirmState, render_confirm};
 use super::help::render_help;
 use super::main_scene::render_main_scene;
-use super::prompt::{render_prompt, PromptState};
+use super::prompt::{PromptState, render_prompt};
 use super::sidebar::render_sidebar;
 
 /// Which panel currently has focus.
@@ -174,10 +174,10 @@ impl App {
                 self.rooms = rooms;
 
                 // Restore selection if the room still exists
-                if let Some(name) = selected_name {
-                    if let Some(idx) = self.rooms.iter().position(|r| r.name == name) {
-                        self.selected_index = idx;
-                    }
+                if let Some(name) = selected_name
+                    && let Some(idx) = self.rooms.iter().position(|r| r.name == name)
+                {
+                    self.selected_index = idx;
                 }
 
                 // Ensure selected_index is valid for the current rooms list
@@ -607,10 +607,10 @@ impl App {
         };
 
         // Send input to PTY
-        if let Some(session) = self.current_session_mut() {
-            if let Err(e) = session.write(&bytes) {
-                self.status_message = Some(format!("Write error: {}", e));
-            }
+        if let Some(session) = self.current_session_mut()
+            && let Err(e) = session.write(&bytes)
+        {
+            self.status_message = Some(format!("Write error: {}", e));
         }
     }
 
