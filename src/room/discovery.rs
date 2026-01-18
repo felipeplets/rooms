@@ -37,12 +37,19 @@ pub enum DiscoveryError {
 /// 5. Marks prunable worktrees as Orphaned
 ///
 /// # Arguments
-/// * `repo_root` - Path to the repository root
+/// * `repo_root` - Path to the repository root. Must be a valid git repository,
+///   otherwise this function will return a `WorktreeList` error from the
+///   underlying git command.
 /// * `rooms_dir` - Path to the rooms directory (e.g., `.rooms/`)
 /// * `transient` - Transient state store for in-memory status
 ///
 /// # Returns
 /// A vector of `RoomInfo` representing discovered rooms.
+///
+/// # Errors
+/// * `DiscoveryError::InvalidRoomsDir` - If `rooms_dir` does not exist or is not a directory
+/// * `DiscoveryError::WorktreeList` - If `repo_root` is not a valid git repository or
+///   the git command fails
 pub fn discover_rooms(
     repo_root: &Path,
     rooms_dir: &Path,
@@ -130,7 +137,81 @@ fn normalize_path_string(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// Helper struct for test git repositories.
+    /// The TempDir is kept alive to prevent cleanup until the test completes.
+    struct TestRepo {
+        _temp_dir: tempfile::TempDir,
+        path: PathBuf,
+    }
+
+    impl TestRepo {
+        /// Create a new temporary git repository with an initial commit.
+        fn new() -> Self {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let path = temp_dir.path().to_path_buf();
+
+            Command::new("git")
+                .args(["init"])
+                .current_dir(&path)
+                .output()
+                .unwrap();
+
+            Command::new("git")
+                .args(["config", "user.email", "test@test.com"])
+                .current_dir(&path)
+                .output()
+                .unwrap();
+
+            Command::new("git")
+                .args(["config", "user.name", "Test"])
+                .current_dir(&path)
+                .output()
+                .unwrap();
+
+            Command::new("git")
+                .args(["commit", "--allow-empty", "-m", "init"])
+                .current_dir(&path)
+                .output()
+                .unwrap();
+
+            Self {
+                _temp_dir: temp_dir,
+                path,
+            }
+        }
+
+        /// Get the repository path.
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        /// Create a rooms directory and return its path.
+        fn create_rooms_dir(&self) -> PathBuf {
+            let rooms_dir = self.path.join(".rooms");
+            std::fs::create_dir(&rooms_dir).unwrap();
+            rooms_dir
+        }
+
+        /// Add a worktree with the given name in the specified directory.
+        fn add_worktree(&self, parent_dir: &Path, name: &str) -> PathBuf {
+            let worktree_path = parent_dir.join(name);
+            Command::new("git")
+                .args([
+                    "worktree",
+                    "add",
+                    "-b",
+                    name,
+                    worktree_path.to_str().unwrap(),
+                ])
+                .current_dir(&self.path)
+                .output()
+                .unwrap();
+            worktree_path
+        }
+    }
 
     #[test]
     fn test_normalize_path_string() {
@@ -203,41 +284,11 @@ mod tests {
 
     #[test]
     fn test_discover_rooms_empty() {
-        use std::process::Command;
-
-        // Create a temp git repo with a rooms directory but no worktrees
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Configure git
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Create rooms directory
-        let rooms_dir = temp_path.join(".rooms");
-        std::fs::create_dir(&rooms_dir).unwrap();
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
@@ -246,55 +297,12 @@ mod tests {
 
     #[test]
     fn test_discover_rooms_with_worktree() {
-        use std::process::Command;
-
-        // Create a temp git repo
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Configure git
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Create rooms directory
-        let rooms_dir = temp_path.join(".rooms");
-        std::fs::create_dir(&rooms_dir).unwrap();
-
-        // Add a worktree in the rooms directory
-        let worktree_path = rooms_dir.join("test-room");
-        Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "test-room",
-                worktree_path.to_str().unwrap(),
-            ])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        repo.add_worktree(&rooms_dir, "test-room");
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
@@ -306,57 +314,15 @@ mod tests {
 
     #[test]
     fn test_discover_rooms_applies_transient_state() {
-        use std::process::Command;
-
-        // Create a temp git repo
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Configure git
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Create rooms directory and worktree
-        let rooms_dir = temp_path.join(".rooms");
-        std::fs::create_dir(&rooms_dir).unwrap();
-
-        let worktree_path = rooms_dir.join("creating-room");
-        Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "creating-room",
-                worktree_path.to_str().unwrap(),
-            ])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        repo.add_worktree(&rooms_dir, "creating-room");
 
         // Set transient state
         let mut transient = TransientStateStore::new();
         transient.set_status("creating-room", RoomStatus::Creating);
 
-        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
@@ -368,58 +334,15 @@ mod tests {
 
     #[test]
     fn test_discover_rooms_with_prunable_worktree() {
-        use std::process::Command;
-
-        // Create a temp git repo
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Configure git
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Create rooms directory
-        let rooms_dir = temp_path.join(".rooms");
-        std::fs::create_dir(&rooms_dir).unwrap();
-
-        // Add a worktree in the rooms directory
-        let worktree_path = rooms_dir.join("orphan-room");
-        Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "orphan-room",
-                worktree_path.to_str().unwrap(),
-            ])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
+        let worktree_path = repo.add_worktree(&rooms_dir, "orphan-room");
 
         // Delete the worktree directory to make it prunable
         std::fs::remove_dir_all(&worktree_path).unwrap();
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
@@ -432,69 +355,17 @@ mod tests {
 
     #[test]
     fn test_discover_rooms_excludes_worktrees_outside_rooms_dir() {
-        use std::process::Command;
-
-        // Create a temp git repo
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path();
-
-        Command::new("git")
-            .args(["init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Configure git
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init"])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
-
-        // Create rooms directory
-        let rooms_dir = temp_path.join(".rooms");
-        std::fs::create_dir(&rooms_dir).unwrap();
+        let repo = TestRepo::new();
+        let rooms_dir = repo.create_rooms_dir();
 
         // Add a worktree inside rooms dir
-        let inside_path = rooms_dir.join("inside-room");
-        Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "inside-room",
-                inside_path.to_str().unwrap(),
-            ])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
+        repo.add_worktree(&rooms_dir, "inside-room");
 
         // Add a worktree outside rooms dir
-        let outside_path = temp_path.join("outside-worktree");
-        Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "-b",
-                "outside-branch",
-                outside_path.to_str().unwrap(),
-            ])
-            .current_dir(temp_path)
-            .output()
-            .unwrap();
+        repo.add_worktree(repo.path(), "outside-worktree");
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(temp_path, &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
