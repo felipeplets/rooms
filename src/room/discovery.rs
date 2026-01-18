@@ -33,7 +33,7 @@ pub enum DiscoveryError {
 /// 1. Lists all worktrees in the repository
 /// 2. Filters to only worktrees inside the rooms directory
 /// 3. Excludes the main worktree
-/// 4. Merges transient state (Creating, Deleting, Error) with discovered rooms
+/// 4. Merges in-memory transient state with discovered rooms
 /// 5. Marks prunable worktrees as Orphaned
 ///
 /// # Arguments
