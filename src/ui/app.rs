@@ -366,21 +366,19 @@ impl App {
         }
 
         // PTY cursor handling - must be done AFTER all rendering
-        // Set cursor position when PTY pane is focused and visible
-        if self.focus == Focus::MainScene
-            && self.main_scene_visible
-            && self.scrollback_offset == 0
+        // Set cursor position when PTY wants cursor visible
+        if self.should_show_cursor()
             && let Some(session) = self.current_session()
-            && self.should_show_cursor()
         {
             let screen = session.screen();
 
             // Calculate which area is the main scene
-            let main_area = match (self.sidebar_visible, self.main_scene_visible) {
-                (true, true) => chunks.get(1).copied().unwrap_or(area),
-                (false, true) => chunks.first().copied().unwrap_or(area),
-                _ => area,
-            };
+            let main_area = Self::get_main_scene_area(
+                area,
+                &chunks,
+                self.sidebar_visible,
+                self.main_scene_visible,
+            );
 
             // Calculate inner area (subtract borders)
             let inner = Rect {
@@ -405,6 +403,21 @@ impl App {
         }
     }
 
+    /// Helper method to get the main scene area from the layout chunks.
+    /// This logic is shared between cursor positioning and PTY size calculation.
+    fn get_main_scene_area(
+        area: Rect,
+        chunks: &[Rect],
+        sidebar_visible: bool,
+        main_scene_visible: bool,
+    ) -> Rect {
+        match (sidebar_visible, main_scene_visible) {
+            (true, true) => chunks.get(1).copied().unwrap_or(area),
+            (false, true) => chunks.first().copied().unwrap_or(area),
+            _ => area,
+        }
+    }
+
     /// Calculate the PTY size based on current terminal size and sidebar visibility.
     /// This must match the actual rendered area inside the terminal block (with borders).
     /// We replicate exactly what render does: calculate_layout() then block.inner().
@@ -418,13 +431,9 @@ impl App {
         };
         let chunks = self.calculate_layout(area);
 
-        // Get the main scene area (same logic as render())
-        let main_area = match (self.sidebar_visible, self.main_scene_visible) {
-            (true, true) => chunks.get(1).copied().unwrap_or(area),
-            (true, false) => area, // No main scene visible
-            (false, true) => chunks.first().copied().unwrap_or(area),
-            (false, false) => area,
-        };
+        // Get the main scene area using the shared helper method
+        let main_area =
+            Self::get_main_scene_area(area, &chunks, self.sidebar_visible, self.main_scene_visible);
 
         // Calculate inner area after block borders (Borders::ALL subtracts 2 from each dimension)
         let inner_width = main_area.width.saturating_sub(2);
