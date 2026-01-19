@@ -126,6 +126,10 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                         if cell.inverse() {
                             std::mem::swap(&mut fg, &mut bg);
                         }
+                        if app.selection_contains(y as u16, x as u16) {
+                            bg = Color::DarkGray;
+                            fg = Color::White;
+                        }
 
                         buf[(buf_x, buf_y)].set_char(c).set_fg(fg).set_bg(bg);
                     } else {
