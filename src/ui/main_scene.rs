@@ -130,9 +130,11 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
 
-        // Show cursor if focused and visible
+        // Show cursor if focused
+        // Always set cursor position when the main scene is focused, so users
+        // can see where they're typing in interactive applications
         let (cursor_row, cursor_col) = screen.cursor_position();
-        if is_focused && !screen.hide_cursor() {
+        if is_focused {
             let cursor_x = inner.x + cursor_col;
             let cursor_y = inner.y + cursor_row;
             if cursor_x < inner.x + inner.width && cursor_y < inner.y + inner.height {

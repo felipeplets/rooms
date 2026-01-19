@@ -211,6 +211,9 @@ impl App {
 
         // Force a full clear to sync ratatui's internal state with the actual terminal
         terminal.clear()?;
+        
+        // Ensure cursor is shown initially
+        terminal.show_cursor()?;
 
         // Main loop
         let result = self.main_loop(&mut terminal);
@@ -254,11 +257,12 @@ impl App {
             // Draw UI
             terminal.draw(|frame| self.render(frame))?;
 
-            // Show cursor if appropriate (prompts or focused PTY with visible cursor)
+            // Ensure cursor visibility is set correctly after draw.
+            // Ratatui's draw() may change cursor state, so we need to restore it.
+            // We only explicitly show the cursor when needed, and let it remain
+            // hidden otherwise (ratatui's default behavior).
             if self.should_show_cursor() {
                 terminal.show_cursor()?;
-            } else {
-                terminal.hide_cursor()?;
             }
 
             // Handle input (with 50ms timeout for PTY responsiveness)
@@ -1058,13 +1062,10 @@ impl App {
             return true;
         }
 
-        // Show cursor when main scene is focused and has a PTY with visible cursor
-        if self.focus == Focus::MainScene
-            && self.main_scene_visible
-            && let Some(session) = self.current_session()
-        {
-            let screen = session.screen();
-            return !screen.hide_cursor();
+        // Show cursor when main scene is focused and visible
+        // (always show cursor in the PTY, regardless of what the application requests)
+        if self.focus == Focus::MainScene && self.main_scene_visible {
+            return self.current_session().is_some();
         }
 
         false
