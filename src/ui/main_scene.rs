@@ -114,8 +114,11 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                     let cell = screen.cell(y as u16, x as u16);
                     if let Some(cell) = cell {
                         let c = cell.contents().chars().next().unwrap_or(' ');
-                        let fg = vt100_color_to_ratatui(cell.fgcolor(), true);
-                        let bg = vt100_color_to_ratatui(cell.bgcolor(), false);
+                        let mut fg = vt100_color_to_ratatui(cell.fgcolor(), true);
+                        let mut bg = vt100_color_to_ratatui(cell.bgcolor(), false);
+                        if cell.inverse() {
+                            std::mem::swap(&mut fg, &mut bg);
+                        }
 
                         buf[(buf_x, buf_y)].set_char(c).set_fg(fg).set_bg(bg);
                     } else {

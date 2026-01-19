@@ -371,38 +371,36 @@ impl App {
             && self.main_scene_visible
             && self.scrollback_offset == 0
             && let Some(session) = self.current_session()
+            && self.should_show_cursor()
         {
             let screen = session.screen();
 
-            // Only position cursor when PTY wants it visible
-            if !screen.hide_cursor() {
-                // Calculate which area is the main scene
-                let main_area = match (self.sidebar_visible, self.main_scene_visible) {
-                    (true, true) => chunks.get(1).copied().unwrap_or(area),
-                    (false, true) => chunks.first().copied().unwrap_or(area),
-                    _ => area,
-                };
+            // Calculate which area is the main scene
+            let main_area = match (self.sidebar_visible, self.main_scene_visible) {
+                (true, true) => chunks.get(1).copied().unwrap_or(area),
+                (false, true) => chunks.first().copied().unwrap_or(area),
+                _ => area,
+            };
 
-                // Calculate inner area (subtract borders)
-                let inner = Rect {
-                    x: main_area.x.saturating_add(1),
-                    y: main_area.y.saturating_add(1),
-                    width: main_area.width.saturating_sub(2),
-                    height: main_area.height.saturating_sub(2),
-                };
+            // Calculate inner area (subtract borders)
+            let inner = Rect {
+                x: main_area.x.saturating_add(1),
+                y: main_area.y.saturating_add(1),
+                width: main_area.width.saturating_sub(2),
+                height: main_area.height.saturating_sub(2),
+            };
 
-                // Only position cursor if viewport has non-zero dimensions
-                if inner.width > 0 && inner.height > 0 {
-                    // Get PTY cursor position
-                    let (cursor_row, cursor_col) = screen.cursor_position();
+            // Only position cursor if viewport has non-zero dimensions
+            if inner.width > 0 && inner.height > 0 {
+                // Get PTY cursor position
+                let (cursor_row, cursor_col) = screen.cursor_position();
 
-                    // Clamp to visible viewport
-                    let cursor_col = cursor_col.min(inner.width.saturating_sub(1));
-                    let cursor_row = cursor_row.min(inner.height.saturating_sub(1));
+                // Clamp to visible viewport
+                let cursor_col = cursor_col.min(inner.width.saturating_sub(1));
+                let cursor_row = cursor_row.min(inner.height.saturating_sub(1));
 
-                    // Set cursor position
-                    frame.set_cursor_position((inner.x + cursor_col, inner.y + cursor_row));
-                }
+                // Set cursor position
+                frame.set_cursor_position((inner.x + cursor_col, inner.y + cursor_row));
             }
         }
     }
@@ -1186,7 +1184,7 @@ impl App {
 
         let screen = session.screen();
 
-        // Show cursor when PTY wants it visible
+        // Show cursor when PTY wants it visible.
         !screen.hide_cursor()
     }
 }
