@@ -57,7 +57,6 @@ When room names or branch names exceed the available sidebar width, they are tru
 |------|--------|-------|
 | `○` | Idle | White |
 | `◐` | Creating | Yellow |
-| `◐` | PostCreateRunning | Yellow |
 | `●` | Ready | Green |
 | `!` | Error | Red |
 | `?` | Orphaned | Dark Gray |

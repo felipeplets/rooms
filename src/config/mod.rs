@@ -1,15 +1,12 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-
-/// Directory name for rooms config and logs within a repository.
-pub const CONFIG_DIR: &str = ".rooms";
 
 /// Default directory for rooms worktrees (parent of primary worktree).
 pub const DEFAULT_ROOMS_DIR: &str = "..";
 
 /// Configuration file name.
-pub const CONFIG_FILE: &str = "config.toml";
+pub const CONFIG_FILE: &str = ".roomsrc.json";
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -17,43 +14,18 @@ pub enum ConfigError {
     Read(#[from] std::io::Error),
 
     #[error("failed to parse config file: {0}")]
-    Parse(#[from] toml::de::Error),
-
-    #[error("failed to serialize config: {0}")]
-    Serialize(#[from] toml::ser::Error),
+    Parse(#[from] serde_json::Error),
 }
 
-/// Post-create command configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PostCreateCommand {
-    /// Display name for this command.
-    pub name: String,
-
-    /// The command to run.
-    pub command: String,
-
-    /// Arguments to pass to the command.
-    #[serde(default)]
-    pub args: Vec<String>,
-
-    /// Where to run the command.
-    #[serde(default)]
-    pub run_in: RunIn,
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Hooks {
+    #[serde(default, deserialize_with = "deserialize_hook_commands")]
+    pub post_create: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_hook_commands")]
+    pub post_enter: Vec<String>,
 }
 
-/// Where to run a post-create command.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum RunIn {
-    /// Run in the room's worktree root.
-    #[default]
-    RoomRoot,
-
-    /// Run in the main repository root.
-    RepoRoot,
-}
-
-/// Application configuration loaded from config.toml.
+/// Application configuration loaded from .roomsrc.json.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Base branch to create new branches from.
@@ -65,9 +37,9 @@ pub struct Config {
     #[serde(default = "default_rooms_dir")]
     pub rooms_dir: String,
 
-    /// Commands to run after creating a new room.
+    /// Hooks to run for room lifecycle events.
     #[serde(default)]
-    pub post_create_commands: Vec<PostCreateCommand>,
+    pub hooks: Hooks,
 }
 
 fn default_rooms_dir() -> String {
@@ -79,13 +51,13 @@ impl Default for Config {
         Self {
             base_branch: None,
             rooms_dir: default_rooms_dir(),
-            post_create_commands: Vec::new(),
+            hooks: Hooks::default(),
         }
     }
 }
 
 impl Config {
-    /// Load configuration from a TOML file.
+    /// Load configuration from a JSON file.
     ///
     /// Returns default config if the file doesn't exist.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
@@ -96,13 +68,13 @@ impl Config {
         }
 
         let contents = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&contents)?;
+        let config: Config = serde_json::from_str(&contents)?;
         Ok(config)
     }
 
     /// Load configuration from the default location within a repository.
-    pub fn load_from_repo<P: AsRef<Path>>(repo_root: P) -> Result<Self, ConfigError> {
-        let config_path = repo_root.as_ref().join(CONFIG_DIR).join(CONFIG_FILE);
+    pub fn load_from_primary<P: AsRef<Path>>(primary_worktree: P) -> Result<Self, ConfigError> {
+        let config_path = primary_worktree.as_ref().join(CONFIG_FILE);
         Self::load(config_path)
     }
 
@@ -128,6 +100,32 @@ impl Config {
     }
 }
 
+fn deserialize_hook_commands<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(command) => Ok(vec![command]),
+        serde_json::Value::Array(items) => {
+            let mut commands = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    serde_json::Value::String(command) => commands.push(command),
+                    _ => {
+                        return Err(serde::de::Error::custom("hook commands must be strings"));
+                    }
+                }
+            }
+            Ok(commands)
+        }
+        serde_json::Value::Null => Ok(Vec::new()),
+        _ => Err(serde::de::Error::custom(
+            "hook commands must be a string or array of strings",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,53 +135,42 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.rooms_dir, "..");
         assert!(config.base_branch.is_none());
-        assert!(config.post_create_commands.is_empty());
+        assert!(config.hooks.post_create.is_empty());
+        assert!(config.hooks.post_enter.is_empty());
     }
 
     #[test]
     fn test_parse_minimal_config() {
-        let toml = "";
-        let config: Config = toml::from_str(toml).unwrap();
+        let json = "{}";
+        let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.rooms_dir, "..");
     }
 
     #[test]
     fn test_parse_full_config() {
-        let toml = r#"
-base_branch = "main"
-rooms_dir = ".worktrees"
-
-[[post_create_commands]]
-name = "install"
-command = "npm"
-args = ["install"]
-run_in = "room_root"
-
-[[post_create_commands]]
-name = "setup"
-command = "make"
-args = ["setup"]
-run_in = "repo_root"
+        let json = r#"
+{
+  "base_branch": "main",
+  "rooms_dir": ".worktrees",
+  "hooks": {
+    "post_create": ["npm install", "make setup"],
+    "post_enter": "ls -la"
+  }
+}
 "#;
-        let config: Config = toml::from_str(toml).unwrap();
+        let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.base_branch, Some("main".to_string()));
         assert_eq!(config.rooms_dir, ".worktrees");
-        assert_eq!(config.post_create_commands.len(), 2);
-
-        let cmd1 = &config.post_create_commands[0];
-        assert_eq!(cmd1.name, "install");
-        assert_eq!(cmd1.command, "npm");
-        assert_eq!(cmd1.args, vec!["install"]);
-        assert_eq!(cmd1.run_in, RunIn::RoomRoot);
-
-        let cmd2 = &config.post_create_commands[1];
-        assert_eq!(cmd2.name, "setup");
-        assert_eq!(cmd2.run_in, RunIn::RepoRoot);
+        assert_eq!(config.hooks.post_create.len(), 2);
+        assert_eq!(config.hooks.post_create[0], "npm install");
+        assert_eq!(config.hooks.post_create[1], "make setup");
+        assert_eq!(config.hooks.post_enter.len(), 1);
+        assert_eq!(config.hooks.post_enter[0], "ls -la");
     }
 
     #[test]
     fn test_load_nonexistent_returns_default() {
-        let config = Config::load("/nonexistent/path/config.toml").unwrap();
+        let config = Config::load("/nonexistent/path/.roomsrc.json").unwrap();
         assert_eq!(config.rooms_dir, "..");
     }
 

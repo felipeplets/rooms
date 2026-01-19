@@ -8,7 +8,7 @@
 
 - Manage multiple Git worktrees from a single interface
 - Instantly switch between worktrees with embedded terminal sessions
-- Automate post-create setup commands per repository
+- Automate post-create and post-enter hooks per repository
 - Local-only operation with no network dependencies
 
 ## Goals

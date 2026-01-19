@@ -20,7 +20,6 @@
 |--------|-------------|
 | `Idle` | Room exists, no background operations in progress |
 | `Creating` | Creating worktree and branch via git |
-| `PostCreateRunning` | Running configured post-create commands |
 | `Ready` | Terminal session active and ready |
 | `Error` | Last operation failed (see `last_error`) |
 | `Deleting` | Removing worktree |
@@ -29,9 +28,8 @@
 ### Status Transitions
 
 ```
-Creating → PostCreateRunning → Ready
+Creating → Ready
 Creating → Error
-PostCreateRunning → Error
 Ready → Deleting → (removed)
 Ready → Orphaned (prunable worktree)
 ```
@@ -45,7 +43,7 @@ No persistent room state file is stored.
 
 The following state is kept in memory only and not persisted:
 
-- Transient room status overrides (creating, post-create, error)
+- Transient room status overrides (creating, error)
 - PTY sessions (recreated on room selection)
 - Panel visibility toggles
 - Current selection index

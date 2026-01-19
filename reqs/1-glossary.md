@@ -33,7 +33,7 @@ Which panel currently receives keyboard input. Either `Sidebar` or `MainScene`.
 ## Status Icons
 Visual indicators showing room state:
 - `○` Idle
-- `◐` Creating/PostCreateRunning
+- `◐` Creating
 - `●` Ready
 - `!` Error
 - `?` Orphaned

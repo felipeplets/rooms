@@ -17,7 +17,8 @@
 3. **Execute creation**
    - Create worktree via git
    - Refresh worktree list
-   - Run post-create commands (if configured)
+   - Auto-enter the new room (start PTY session)
+   - Run `post_create` hooks, then `post_enter` hooks (if configured)
 
 ### Quick Mode (Key: `A`)
 
@@ -48,9 +49,8 @@ Depending on branch state:
 ### Status Transitions
 
 ```
-(none) → Creating → PostCreateRunning → Ready
-                  → Error (if git fails)
-         PostCreateRunning → Error (if commands fail)
+(none) → Creating → Ready
+         Creating → Error (if git fails)
 ```
 
 ## Delete Room

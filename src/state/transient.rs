@@ -3,7 +3,6 @@
 //! This module provides storage for temporary room states that don't need
 //! to be persisted to disk. Examples include:
 //! - Creating: worktree creation in progress
-//! - PostCreateRunning: post-create commands running
 //! - Deleting: worktree removal in progress
 //! - Error: operation failed (with error message)
 
@@ -45,7 +44,7 @@ impl TransientRoomState {
 ///
 /// Transient states are keyed by room name (directory name) and are not
 /// persisted to disk. They are used to track temporary states like:
-/// - Creating, PostCreateRunning, Deleting (operation in progress)
+/// - Creating, Deleting (operation in progress)
 /// - Error (operation failed)
 ///
 /// When a room's transient state is cleared, the room's status will be
@@ -172,11 +171,8 @@ mod tests {
         store.set_status("room-1", RoomStatus::Creating);
         assert_eq!(store.get_status("room-1"), Some(&RoomStatus::Creating));
 
-        store.set_status("room-1", RoomStatus::PostCreateRunning);
-        assert_eq!(
-            store.get_status("room-1"),
-            Some(&RoomStatus::PostCreateRunning)
-        );
+        store.set_status("room-1", RoomStatus::Deleting);
+        assert_eq!(store.get_status("room-1"), Some(&RoomStatus::Deleting));
     }
 
     #[test]
@@ -214,7 +210,7 @@ mod tests {
 
         store.set_status("room-a", RoomStatus::Creating);
         store.set_status("room-b", RoomStatus::Deleting);
-        store.set_status("room-c", RoomStatus::PostCreateRunning);
+        store.set_status("room-c", RoomStatus::Error);
 
         let mut names: Vec<&str> = store.room_names().collect();
         names.sort();

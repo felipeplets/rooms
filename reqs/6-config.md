@@ -3,12 +3,12 @@
 ## File Location
 
 ```
-{repo_root}/.rooms/config.toml
+{primary_worktree_root}/.roomsrc.json
 ```
 
 ## Format
 
-TOML format. If the file does not exist, defaults are used.
+JSON format. If the file does not exist, defaults are used.
 
 ## Options
 
@@ -16,53 +16,30 @@ TOML format. If the file does not exist, defaults are used.
 |--------|------|---------|-------------|
 | `base_branch` | String | (none) | Default base branch for new rooms |
 | `rooms_dir` | String | `..` | Directory for storing room worktrees |
-| `post_create_commands` | Array | `[]` | Commands to run after room creation |
+| `hooks` | Object | `{}` | Lifecycle hooks (post-create and post-enter) |
 
-## Post-Create Command Structure
+## Hooks
 
-Each post-create command has the following fields:
+Hooks are strings or arrays of strings. Each string is a command sent to the room's PTY shell.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | String | Yes | Display name for the command |
-| `command` | String | Yes | Executable to run |
-| `args` | Array<String> | No | Arguments to pass to the command |
-| `run_in` | String | No | Where to run: `room_root` (default) or `repo_root` |
-
-### Run Location
-
-| Value | Description |
-|-------|-------------|
-| `room_root` | Run in the worktree directory |
-| `repo_root` | Run in the main repository root |
+Supported keys:
+- `post_create`: runs immediately after creating a room
+- `post_enter`: runs immediately after entering a room (including after create)
 
 ## Example Configuration
 
-```toml
-# Default branch for new rooms
-base_branch = "main"
-
-# Directory for room worktrees (relative to primary worktree)
-rooms_dir = ".."
-
-# Post-create commands
-[[post_create_commands]]
-name = "install"
-command = "npm"
-args = ["install"]
-run_in = "room_root"
-
-[[post_create_commands]]
-name = "setup"
-command = "make"
-args = ["setup"]
-run_in = "repo_root"
-
-[[post_create_commands]]
-name = "init"
-command = "./scripts/init.sh"
-args = []
-run_in = "room_root"
+```json
+{
+  "base_branch": "main",
+  "rooms_dir": "..",
+  "hooks": {
+    "post_create": [
+      "npm install",
+      "make setup"
+    ],
+    "post_enter": "ls -la"
+  }
+}
 ```
 
 ## Behavior
@@ -70,4 +47,4 @@ run_in = "room_root"
 - Configuration is loaded once at startup
 - Changes require restarting the application
 - Invalid configuration results in an error message and exit
-- Missing file uses defaults (no base branch, `..` directory, no post-create commands)
+- Missing file uses defaults (no base branch, `..` directory, no hooks)

@@ -39,38 +39,21 @@ Plain text, one event per line:
 
 ### Execution Model
 
-- Commands run in a background thread
-- Commands execute sequentially (in order defined in config)
-- Fail-fast: Execution stops on first failure
-- Room status set to `PostCreateRunning` during execution
+- Hook commands are written to the PTY shell sequentially (in configured order)
+- Each command is sent as a line to the shell
+- Hooks only run when a PTY session is active for the room
 
-### Per-Command Execution
+### Hooks
 
-1. Determine working directory (`room_root` or `repo_root`)
-2. Spawn process with command and arguments
-3. Capture stdout and stderr
-4. Check exit code
-
-### Result Tracking
-
-Each command result includes:
-- Command name
-- Success/failure status
-- Combined output (stdout + stderr)
-- Exit code
-
-### Status Updates
-
-| Outcome | Room Status | Action |
-|---------|-------------|--------|
-| All succeed | `Ready` | Log `postcreatcompleted` |
-| Any fails | `Error` | Log `postcreatfailed`, set `last_error` |
+Hooks are executed in the PTY shell:
+- `post_create` runs after room creation (before `post_enter`)
+- `post_enter` runs when entering a room
 
 ### Skipping
 
-Post-create commands can be skipped:
-- `--no-post-create` CLI flag
-- No commands configured in `config.toml`
+Hooks can be skipped:
+- `--no-hooks` CLI flag
+- No hooks configured in `.roomsrc.json`
 
 ## Git Command Wrapper
 

@@ -222,7 +222,6 @@ fn status_icon_for_room(room: &RoomInfo, section: RoomSection) -> &'static str {
     match room.status {
         RoomStatus::Idle => "○",
         RoomStatus::Creating => "◐",
-        RoomStatus::PostCreateRunning => "◐",
         RoomStatus::Ready => "●",
         RoomStatus::Error => "!",
         RoomStatus::Deleting => "◐",
@@ -247,7 +246,6 @@ fn status_color(status: &RoomStatus) -> Color {
     match status {
         RoomStatus::Idle => Color::White,
         RoomStatus::Creating => Color::Yellow,
-        RoomStatus::PostCreateRunning => Color::Yellow,
         RoomStatus::Ready => Color::Green,
         RoomStatus::Error => Color::Red,
         RoomStatus::Deleting => Color::Yellow,
