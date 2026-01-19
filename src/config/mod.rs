@@ -113,6 +113,9 @@ impl Config {
             return primary
                 .parent()
                 .map(|parent| parent.to_path_buf())
+                // Edge case: If primary_worktree has no parent (e.g., at filesystem root),
+                // fall back to using the primary_worktree itself. This is a rare scenario
+                // but allows the application to continue functioning.
                 .unwrap_or_else(|| primary.to_path_buf());
         }
 

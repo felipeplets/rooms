@@ -72,8 +72,11 @@ fn main() -> ExitCode {
     let primary_worktree = match git::get_primary_worktree_path_from(&repo_root) {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("warning: failed to detect primary worktree: {e}");
-            repo_root.clone()
+            eprintln!("error: failed to detect primary worktree: {e}");
+            eprintln!();
+            eprintln!("rooms must be run from a git repository with a detectable primary worktree.");
+            eprintln!("Check your git worktree configuration and try again.");
+            return ExitCode::FAILURE;
         }
     };
     let rooms_dir = config.rooms_path(&primary_worktree);

@@ -143,7 +143,11 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
         let failed_label = failed_reason_label(room);
         let primary_label = if room.is_primary { PRIMARY_LABEL } else { "" };
         let label_width = primary_label.width() + failed_label.width();
-        let room_name_max_width = content_width.saturating_sub(STATUS_PREFIX_WIDTH + label_width);
+        let room_name_min_width = 4;
+        let room_name_max_width =
+            content_width
+                .saturating_sub(STATUS_PREFIX_WIDTH + label_width)
+                .max(room_name_min_width);
         let branch_name_max_width = content_width.saturating_sub(BRANCH_PREFIX_WIDTH);
 
         let room_name = truncate_with_ellipsis(&room.name, room_name_max_width);
@@ -228,13 +232,9 @@ fn status_icon_for_room(room: &RoomInfo, section: RoomSection) -> &'static str {
 }
 
 fn failed_reason_label(room: &RoomInfo) -> &'static str {
-    if !matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) && !room.is_prunable {
-        return "";
-    }
-
     if room.is_prunable {
         PRUNABLE_LABEL
-    } else if room.last_error.is_some() {
+    } else if matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) || room.last_error.is_some() {
         ERROR_LABEL
     } else {
         ""
@@ -315,6 +315,13 @@ mod tests {
     fn test_failed_reason_label_error() {
         let mut room = make_room("failed", RoomStatus::Error);
         room.last_error = Some("boom".to_string());
+        let label = failed_reason_label(&room);
+        assert_eq!(label, ERROR_LABEL);
+    }
+
+    #[test]
+    fn test_failed_reason_label_error_without_message() {
+        let room = make_room("failed", RoomStatus::Error);
         let label = failed_reason_label(&room);
         assert_eq!(label, ERROR_LABEL);
     }
