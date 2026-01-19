@@ -689,12 +689,10 @@ impl App {
                     return;
                 }
 
-                if self.main_scene_visible {
-                    // Start PTY session if not already running
-                    let (cols, rows) = self.calculate_pty_size();
-                    self.get_or_create_session(cols, rows);
-                    self.focus = Focus::MainScene;
-                }
+                // Start PTY session if not already running
+                let (cols, rows) = self.calculate_pty_size();
+                self.get_or_create_session(cols, rows);
+                self.focus = Focus::MainScene;
             }
             KeyCode::Char('a') => {
                 self.prompt = PromptState::start_room_creation();
@@ -1250,7 +1248,10 @@ fn room_section_rank_with_active(
     room: &RoomInfo,
     active_rooms: &std::collections::HashSet<String>,
 ) -> u8 {
-    if room.is_prunable || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) {
+    if room.is_prunable
+        || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned)
+        || room.last_error.is_some()
+    {
         2
     } else if active_rooms.contains(&room.name) {
         0
