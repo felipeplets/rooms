@@ -255,14 +255,15 @@ impl App {
             }
 
             // Draw UI
-            // Show cursor before draw if needed, so ratatui can position it correctly
+            terminal.draw(|frame| self.render(frame))?;
+
+            // Set cursor visibility after draw based on PTY state
+            // Ratatui positions the cursor during draw, so we control visibility after
             if self.should_show_cursor() {
                 terminal.show_cursor()?;
             } else {
                 terminal.hide_cursor()?;
             }
-
-            terminal.draw(|frame| self.render(frame))?;
 
             // Handle input (with 50ms timeout for PTY responsiveness)
             if event::poll(Duration::from_millis(50))? {
@@ -1061,10 +1062,13 @@ impl App {
             return true;
         }
 
-        // Show cursor when main scene is focused and visible
-        // (always show cursor in the PTY, regardless of what the application requests)
-        if self.focus == Focus::MainScene && self.main_scene_visible {
-            return self.current_session().is_some();
+        // Show cursor when main scene is focused and the PTY wants the cursor visible
+        if self.focus == Focus::MainScene
+            && self.main_scene_visible
+            && let Some(session) = self.current_session()
+        {
+            let screen = session.screen();
+            return !screen.hide_cursor();
         }
 
         false

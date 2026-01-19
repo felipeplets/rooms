@@ -130,9 +130,9 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
 
-        // Show cursor if focused
-        // Always set cursor position when the main scene is focused, so users
-        // can see where they're typing in interactive applications
+        // Set cursor position if focused
+        // We always set the cursor position when focused, and let the visibility
+        // be controlled by should_show_cursor() which checks screen.hide_cursor()
         let (cursor_row, cursor_col) = screen.cursor_position();
         if is_focused {
             let cursor_x = inner.x + cursor_col;
@@ -141,8 +141,14 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             // Debug logging
             if debug_log::is_enabled() {
                 debug_log::log_debug(&format!(
-                    "CURSOR: screen=({},{}) inner=({},{}) final=({},{})",
-                    cursor_row, cursor_col, inner.x, inner.y, cursor_x, cursor_y
+                    "CURSOR: screen=({},{}) inner=({},{}) final=({},{}) hide={}",
+                    cursor_row,
+                    cursor_col,
+                    inner.x,
+                    inner.y,
+                    cursor_x,
+                    cursor_y,
+                    screen.hide_cursor()
                 ));
             }
 
