@@ -116,6 +116,8 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                         let c = cell.contents().chars().next().unwrap_or(' ');
                         let mut fg = vt100_color_to_ratatui(cell.fgcolor(), true);
                         let mut bg = vt100_color_to_ratatui(cell.bgcolor(), false);
+                        // Many terminal apps use inverse video (swapped fg/bg) to indicate the cursor
+                        // or selections. Honoring cell.inverse() here ensures we render those correctly.
                         if cell.inverse() {
                             std::mem::swap(&mut fg, &mut bg);
                         }
