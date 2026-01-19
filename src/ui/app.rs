@@ -223,6 +223,9 @@ impl App {
         // Force a full clear to sync ratatui's internal state with the actual terminal
         terminal.clear()?;
 
+        // Ensure cursor is shown initially
+        terminal.show_cursor()?;
+
         // Main loop
         let result = self.main_loop(&mut terminal);
 
@@ -278,6 +281,14 @@ impl App {
 
             // Draw UI
             terminal.draw(|frame| self.render(frame))?;
+
+            // Set cursor visibility after draw based on PTY state
+            // Ratatui positions the cursor during draw, so we control visibility after
+            if self.should_show_cursor() {
+                terminal.show_cursor()?;
+            } else {
+                terminal.hide_cursor()?;
+            }
 
             // Handle input (with 50ms timeout for PTY responsiveness)
             if event::poll(Duration::from_millis(50))? {
@@ -353,6 +364,58 @@ impl App {
             let status = Paragraph::new(msg.as_str()).style(Style::default().fg(Color::Yellow));
             frame.render_widget(status, status_area);
         }
+
+        // PTY cursor handling - must be done AFTER all rendering
+        // Set cursor position when PTY wants cursor visible
+        if self.should_show_cursor()
+            && let Some(session) = self.current_session()
+        {
+            let screen = session.screen();
+
+            // Calculate which area is the main scene
+            let main_area = Self::get_main_scene_area(
+                area,
+                &chunks,
+                self.sidebar_visible,
+                self.main_scene_visible,
+            );
+
+            // Calculate inner area (subtract borders)
+            let inner = Rect {
+                x: main_area.x.saturating_add(1),
+                y: main_area.y.saturating_add(1),
+                width: main_area.width.saturating_sub(2),
+                height: main_area.height.saturating_sub(2),
+            };
+
+            // Only position cursor if viewport has non-zero dimensions
+            if inner.width > 0 && inner.height > 0 {
+                // Get PTY cursor position
+                let (cursor_row, cursor_col) = screen.cursor_position();
+
+                // Clamp to visible viewport
+                let cursor_col = cursor_col.min(inner.width.saturating_sub(1));
+                let cursor_row = cursor_row.min(inner.height.saturating_sub(1));
+
+                // Set cursor position
+                frame.set_cursor_position((inner.x + cursor_col, inner.y + cursor_row));
+            }
+        }
+    }
+
+    /// Helper method to get the main scene area from the layout chunks.
+    /// This logic is shared between cursor positioning and PTY size calculation.
+    fn get_main_scene_area(
+        area: Rect,
+        chunks: &[Rect],
+        sidebar_visible: bool,
+        main_scene_visible: bool,
+    ) -> Rect {
+        match (sidebar_visible, main_scene_visible) {
+            (true, true) => chunks.get(1).copied().unwrap_or(area),
+            (false, true) => chunks.first().copied().unwrap_or(area),
+            _ => area,
+        }
     }
 
     /// Calculate the PTY size based on current terminal size and sidebar visibility.
@@ -368,13 +431,9 @@ impl App {
         };
         let chunks = self.calculate_layout(area);
 
-        // Get the main scene area (same logic as render())
-        let main_area = match (self.sidebar_visible, self.main_scene_visible) {
-            (true, true) => chunks.get(1).copied().unwrap_or(area),
-            (true, false) => area, // No main scene visible
-            (false, true) => chunks.first().copied().unwrap_or(area),
-            (false, false) => area,
-        };
+        // Get the main scene area using the shared helper method
+        let main_area =
+            Self::get_main_scene_area(area, &chunks, self.sidebar_visible, self.main_scene_visible);
 
         // Calculate inner area after block borders (Borders::ALL subtracts 2 from each dimension)
         let inner_width = main_area.width.saturating_sub(2);
@@ -1109,5 +1168,32 @@ impl App {
     pub fn current_session_mut(&mut self) -> Option<&mut PtySession> {
         let room_name = self.selected_room_info()?.name.clone();
         self.sessions.get_mut(&room_name)
+    }
+
+    /// Determine if the terminal cursor should be visible.
+    fn should_show_cursor(&self) -> bool {
+        // Show cursor when a prompt is active
+        if self.prompt.is_active() {
+            return true;
+        }
+
+        // Don't show cursor when not focused on main scene
+        if self.focus != Focus::MainScene || !self.main_scene_visible {
+            return false;
+        }
+
+        // Don't show cursor when viewing scrollback
+        if self.scrollback_offset != 0 {
+            return false;
+        }
+
+        let Some(session) = self.current_session() else {
+            return false;
+        };
+
+        let screen = session.screen();
+
+        // Show cursor when PTY wants it visible.
+        !screen.hide_cursor()
     }
 }
