@@ -128,7 +128,10 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
                 // Line 1: Status icon + Room name
                 Line::from(vec![
                     Span::raw(left_pad.clone()),
-                    Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)),
+                    Span::styled(
+                        format!("{} ", status_icon),
+                        Style::default().fg(status_color),
+                    ),
                     Span::styled(room_name, style),
                     Span::raw(right_pad.clone()),
                 ]),
