@@ -16,11 +16,8 @@ const FAILED_WORKTREE_DEFAULT_MESSAGE: &str =
 fn vt100_color_to_ratatui(color: vt100::Color, is_foreground: bool) -> Color {
     match color {
         vt100::Color::Default => {
-            if is_foreground {
-                Color::White
-            } else {
-                Color::Black
-            }
+            let _ = is_foreground;
+            Color::Reset
         }
         vt100::Color::Idx(idx) => indexed_to_color(idx),
         vt100::Color::Rgb(r, g, b) => Color::Rgb(r, g, b),
@@ -135,15 +132,15 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                     } else {
                         buf[(buf_x, buf_y)]
                             .set_char(' ')
-                            .set_fg(Color::White)
-                            .set_bg(Color::Black);
+                            .set_fg(Color::Reset)
+                            .set_bg(Color::Reset);
                     }
                 } else {
                     // Outside screen buffer - clear
                     buf[(buf_x, buf_y)]
                         .set_char(' ')
-                        .set_fg(Color::White)
-                        .set_bg(Color::Black);
+                        .set_fg(Color::Reset)
+                        .set_bg(Color::Reset);
                 }
             }
         }
