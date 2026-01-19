@@ -8,7 +8,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::git::command::CommandError;
-use crate::git::{list_worktrees_from, Worktree};
+use crate::git::{Worktree, list_worktrees_from};
 use crate::room::{RoomInfo, RoomStatus};
 use crate::state::TransientStateStore;
 

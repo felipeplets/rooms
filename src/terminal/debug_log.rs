@@ -6,8 +6,8 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Global flag to enable/disable debug logging.
@@ -72,11 +72,11 @@ fn log_raw(msg: &str) {
     if !is_enabled() {
         return;
     }
-    if let Ok(mut guard) = LOG_FILE.lock() {
-        if let Some(ref mut file) = *guard {
-            let _ = file.write_all(msg.as_bytes());
-            let _ = file.flush();
-        }
+    if let Ok(mut guard) = LOG_FILE.lock()
+        && let Some(ref mut file) = *guard
+    {
+        let _ = file.write_all(msg.as_bytes());
+        let _ = file.flush();
     }
 }
 
