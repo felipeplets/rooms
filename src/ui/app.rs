@@ -259,7 +259,9 @@ impl App {
     }
 
     fn room_is_failed(&self, room: &RoomInfo) -> bool {
-        room.is_prunable || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned)
+        room.is_prunable
+            || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned)
+            || room.last_error.is_some()
     }
 
     /// Run the application main loop.
