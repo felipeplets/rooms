@@ -89,11 +89,15 @@ impl DirtyStatus {
 /// Remove a room's worktree.
 ///
 /// This removes the git worktree but does NOT delete the branch.
-pub fn remove_worktree<P: AsRef<Path>>(worktree_path: P) -> Result<(), RemoveRoomError> {
+pub fn remove_worktree<P: AsRef<Path>, R: AsRef<Path>>(
+    repo_root: R,
+    worktree_path: P,
+) -> Result<(), RemoveRoomError> {
     let path_str = worktree_path.as_ref().to_string_lossy().to_string();
 
     let result = GitCommand::new("worktree")
         .args(&["remove", &path_str])
+        .current_dir(repo_root)
         .run()
         .map_err(|e| RemoveRoomError::WorktreeRemoval(e.to_string()))?;
 
@@ -109,11 +113,15 @@ pub fn remove_worktree<P: AsRef<Path>>(worktree_path: P) -> Result<(), RemoveRoo
 }
 
 /// Force remove a room's worktree (even with uncommitted changes).
-pub fn remove_worktree_force<P: AsRef<Path>>(worktree_path: P) -> Result<(), RemoveRoomError> {
+pub fn remove_worktree_force<P: AsRef<Path>, R: AsRef<Path>>(
+    repo_root: R,
+    worktree_path: P,
+) -> Result<(), RemoveRoomError> {
     let path_str = worktree_path.as_ref().to_string_lossy().to_string();
 
     let result = GitCommand::new("worktree")
         .args(&["remove", "--force", &path_str])
+        .current_dir(repo_root)
         .run()
         .map_err(|e| RemoveRoomError::WorktreeRemoval(e.to_string()))?;
 
@@ -147,9 +155,9 @@ pub fn remove_room(
         .ok_or_else(|| RemoveRoomError::NotFound(room_name.to_string()))?;
 
     if force {
-        remove_worktree_force(&worktree.path)?;
+        remove_worktree_force(repo_root, &worktree.path)?;
     } else {
-        remove_worktree(&worktree.path)?;
+        remove_worktree(repo_root, &worktree.path)?;
     }
 
     Ok(room_name.to_string())
