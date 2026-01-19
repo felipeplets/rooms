@@ -1063,14 +1063,15 @@ impl App {
         }
 
         // Show cursor when main scene is focused and the PTY wants the cursor visible
-        if self.focus == Focus::MainScene
-            && self.main_scene_visible
-            && let Some(session) = self.current_session()
-        {
-            let screen = session.screen();
-            return !screen.hide_cursor();
+        if self.focus != Focus::MainScene || !self.main_scene_visible {
+            return false;
         }
 
-        false
+        let Some(session) = self.current_session() else {
+            return false;
+        };
+
+        let screen = session.screen();
+        !screen.hide_cursor()
     }
 }
