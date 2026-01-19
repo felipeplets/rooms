@@ -33,6 +33,29 @@ Each room has an associated PTY session that provides an embedded terminal. The 
 - Text attributes (bold, italic, underline, etc.)
 - Cursor positioning
 - Cursor visibility
+- Scrollback navigation (1000 lines)
+
+## Scrollback Navigation
+
+Users can view terminal history beyond the visible screen:
+
+### Mouse Scrolling
+- **Scroll Up**: View older content (3 lines per scroll)
+- **Scroll Down**: Return to newer content (3 lines per scroll)
+
+### Keyboard Scrolling
+| Key | Action |
+|-----|--------|
+| `PageUp` | Scroll up by one page (screen height) |
+| `PageDown` | Scroll down by one page (screen height) |
+
+### Behavior
+- Scrollback indicator `[↑N]` appears in title when scrolled (N = lines from bottom)
+- Cursor is hidden when viewing history
+- Scrollback automatically resets to bottom (0) when:
+  - User types any key
+  - Switching to a different room
+- Maximum scrollback: 1000 lines
 
 ## Input Handling
 
@@ -54,6 +77,7 @@ These keys are NOT forwarded to the PTY:
 - `Esc` (returns to sidebar)
 - `Ctrl+b` (toggles sidebar)
 - `Ctrl+t` (toggles terminal)
+- `PageUp` / `PageDown` (scrollback navigation)
 
 ### Bracketed Paste Mode
 
