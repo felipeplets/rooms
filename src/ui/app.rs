@@ -391,15 +391,18 @@ impl App {
                     height: main_area.height.saturating_sub(2),
                 };
 
-                // Get PTY cursor position
-                let (cursor_row, cursor_col) = screen.cursor_position();
+                // Only position cursor if viewport has non-zero dimensions
+                if inner.width > 0 && inner.height > 0 {
+                    // Get PTY cursor position
+                    let (cursor_row, cursor_col) = screen.cursor_position();
 
-                // Clamp to visible viewport
-                let cursor_col = cursor_col.min(inner.width.saturating_sub(1));
-                let cursor_row = cursor_row.min(inner.height.saturating_sub(1));
+                    // Clamp to visible viewport
+                    let cursor_col = cursor_col.min(inner.width.saturating_sub(1));
+                    let cursor_row = cursor_row.min(inner.height.saturating_sub(1));
 
-                // Set cursor position
-                frame.set_cursor_position((inner.x + cursor_col, inner.y + cursor_row));
+                    // Set cursor position
+                    frame.set_cursor_position((inner.x + cursor_col, inner.y + cursor_row));
+                }
             }
         }
     }
