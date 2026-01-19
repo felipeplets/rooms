@@ -73,10 +73,10 @@ pub fn get_primary_worktree_path_from<P: AsRef<std::path::Path>>(
     }
 
     let mut common_dir = PathBuf::from(result.stdout);
-    if common_dir.file_name().and_then(|n| n.to_str()) == Some(".git") {
-        if let Some(parent) = common_dir.parent() {
-            common_dir = parent.to_path_buf();
-        }
+    if common_dir.file_name().and_then(|n| n.to_str()) == Some(".git")
+        && let Some(parent) = common_dir.parent()
+    {
+        common_dir = parent.to_path_buf();
     }
 
     Ok(common_dir)

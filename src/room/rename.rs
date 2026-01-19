@@ -146,7 +146,7 @@ mod tests {
         let rooms_dir = repo_root.join(".rooms");
         std::fs::create_dir_all(&rooms_dir).unwrap();
 
-        let result = rename_room(repo_root, rooms_dir, "nonexistent", "new-name");
+        let result = rename_room(&repo_root, &rooms_dir, "nonexistent", "new-name");
         assert!(matches!(result, Err(RenameRoomError::NotFound(_))));
     }
 
@@ -179,7 +179,7 @@ mod tests {
             .output()
             .unwrap();
 
-        let result = rename_room(repo_root, rooms_dir, "room-a", "room-b");
+        let result = rename_room(&repo_root, &rooms_dir, "room-a", "room-b");
         assert!(matches!(result, Err(RenameRoomError::NameExists(_))));
     }
 

@@ -7,6 +7,11 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use super::app::{App, Focus, RoomSection};
 use crate::terminal::debug_log;
 
+// UI message constants
+const PRUNABLE_WORKTREE_MESSAGE: &str = "Worktree is prunable - Press Enter to prune";
+const FAILED_WORKTREE_DEFAULT_MESSAGE: &str =
+    "Worktree is in a failed state. Check logs for details.";
+
 /// Convert vt100 color to ratatui Color.
 fn vt100_color_to_ratatui(color: vt100::Color, is_foreground: bool) -> Color {
     match color {
@@ -157,9 +162,12 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
 
         if app.room_section(room) == RoomSection::Failed {
             let detail = if room.is_prunable {
-                "Worktree is prunable"
+                PRUNABLE_WORKTREE_MESSAGE.to_string()
+            } else if let Some(error) = room.last_error.as_deref() {
+                // Show the actual error message when available
+                format!("Worktree error: {}", error)
             } else {
-                "Worktree is in a failed state"
+                FAILED_WORKTREE_DEFAULT_MESSAGE.to_string()
             };
             content.push(Line::from(Span::styled(
                 detail,

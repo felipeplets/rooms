@@ -239,6 +239,13 @@ impl App {
         {
             self.selected_index = idx;
         }
+
+        // Ensure selected_index is valid for the current rooms list
+        if self.rooms.is_empty() {
+            self.selected_index = 0;
+        } else if self.selected_index >= self.rooms.len() {
+            self.selected_index = self.rooms.len() - 1;
+        }
     }
 
     pub fn room_section(&self, room: &RoomInfo) -> RoomSection {
@@ -667,7 +674,7 @@ impl App {
                         match prune_worktrees_from(&self.repo_root) {
                             Ok(_) => {
                                 self.refresh_rooms();
-                                self.status_message = Some("Pruned stale worktrees".to_string());
+                                self.status_message = Some("Ran git worktree prune".to_string());
                             }
                             Err(e) => {
                                 self.status_message =
