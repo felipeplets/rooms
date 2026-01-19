@@ -114,8 +114,13 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                     let cell = screen.cell(y as u16, x as u16);
                     if let Some(cell) = cell {
                         let c = cell.contents().chars().next().unwrap_or(' ');
-                        let fg = vt100_color_to_ratatui(cell.fgcolor(), true);
-                        let bg = vt100_color_to_ratatui(cell.bgcolor(), false);
+                        let mut fg = vt100_color_to_ratatui(cell.fgcolor(), true);
+                        let mut bg = vt100_color_to_ratatui(cell.bgcolor(), false);
+                        // Many terminal apps use inverse video (swapped fg/bg) to indicate the cursor
+                        // or selections. Honoring cell.inverse() here ensures we render those correctly.
+                        if cell.inverse() {
+                            std::mem::swap(&mut fg, &mut bg);
+                        }
 
                         buf[(buf_x, buf_y)].set_char(c).set_fg(fg).set_bg(bg);
                     } else {
@@ -134,15 +139,7 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             }
         }
 
-        // Show cursor if focused, visible, and not scrolled up (viewing history)
-        let (cursor_row, cursor_col) = screen.cursor_position();
-        if is_focused && !screen.hide_cursor() && app.scrollback_offset == 0 {
-            let cursor_x = inner.x + cursor_col;
-            let cursor_y = inner.y + cursor_row;
-            if cursor_x < inner.x + inner.width && cursor_y < inner.y + inner.height {
-                frame.set_cursor_position((cursor_x, cursor_y));
-            }
-        }
+        // Note: Cursor positioning is handled in app.rs after all rendering is complete
     } else if let Some(room) = app.selected_room() {
         // No session yet - show info
         let content = vec![
