@@ -16,7 +16,9 @@ const FAILED_WORKTREE_DEFAULT_MESSAGE: &str =
 fn vt100_color_to_ratatui(color: vt100::Color, is_foreground: bool) -> Color {
     match color {
         vt100::Color::Default => {
-            let _ = is_foreground;
+            if is_foreground {
+                // Currently no distinction between foreground and background defaults.
+            }
             Color::Reset
         }
         vt100::Color::Idx(idx) => indexed_to_color(idx),
