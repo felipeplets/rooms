@@ -104,6 +104,9 @@ pub struct App {
     /// Scrollback offset for the current session (0 = at bottom, >0 = scrolled up).
     pub scrollback_offset: usize,
 
+    /// Previous scrollback offset to detect changes.
+    prev_scrollback_offset: usize,
+
     /// Last known terminal size for resize detection.
     pub last_size: (u16, u16),
 
@@ -159,6 +162,7 @@ impl App {
             confirm: ConfirmState::default(),
             sessions: HashMap::new(),
             scrollback_offset: 0,
+            prev_scrollback_offset: 0,
             last_size: (0, 0),
             post_create_handles: Vec::new(),
             event_log,
@@ -258,13 +262,17 @@ impl App {
                 session.resize(cols, rows);
             }
 
-            // Apply scrollback offset to the current session
+            // Apply scrollback offset to the current session (only if changed)
             if let Some(room_info) = self.selected_room_info() {
-                // Clone is necessary to avoid holding a borrow while mutably accessing sessions
-                let room_name = room_info.name.clone();
                 let offset = self.scrollback_offset;
-                if let Some(session) = self.sessions.get_mut(&room_name) {
-                    session.screen_mut().set_scrollback(offset);
+                // Only update if offset changed
+                if offset != self.prev_scrollback_offset {
+                    // Clone is necessary to avoid holding a borrow while mutably accessing sessions
+                    let room_name = room_info.name.clone();
+                    if let Some(session) = self.sessions.get_mut(&room_name) {
+                        session.screen_mut().set_scrollback(offset);
+                    }
+                    self.prev_scrollback_offset = offset;
                 }
             }
 
@@ -650,6 +658,7 @@ impl App {
         // Send input to PTY
         // Reset scrollback when user types (they're interacting with live terminal)
         self.scrollback_offset = 0;
+        self.prev_scrollback_offset = 0;
 
         if let Some(session) = self.current_session_mut()
             && let Err(e) = session.write(&bytes)
@@ -708,6 +717,7 @@ impl App {
         if total > 0 {
             self.selected_index = (self.selected_index + 1) % total;
             self.scrollback_offset = 0; // Reset scrollback when changing rooms
+            self.prev_scrollback_offset = 0;
         }
     }
 
@@ -716,6 +726,7 @@ impl App {
         if total > 0 {
             self.selected_index = self.selected_index.checked_sub(1).unwrap_or(total - 1);
             self.scrollback_offset = 0; // Reset scrollback when changing rooms
+            self.prev_scrollback_offset = 0;
         }
     }
 
