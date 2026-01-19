@@ -144,10 +144,9 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
         let primary_label = if room.is_primary { PRIMARY_LABEL } else { "" };
         let label_width = primary_label.width() + failed_label.width();
         let room_name_min_width = 4;
-        let room_name_max_width =
-            content_width
-                .saturating_sub(STATUS_PREFIX_WIDTH + label_width)
-                .max(room_name_min_width);
+        let room_name_max_width = content_width
+            .saturating_sub(STATUS_PREFIX_WIDTH + label_width)
+            .max(room_name_min_width);
         let branch_name_max_width = content_width.saturating_sub(BRANCH_PREFIX_WIDTH);
 
         let room_name = truncate_with_ellipsis(&room.name, room_name_max_width);
@@ -234,7 +233,9 @@ fn status_icon_for_room(room: &RoomInfo, section: RoomSection) -> &'static str {
 fn failed_reason_label(room: &RoomInfo) -> &'static str {
     if room.is_prunable {
         PRUNABLE_LABEL
-    } else if matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) || room.last_error.is_some() {
+    } else if matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned)
+        || room.last_error.is_some()
+    {
         ERROR_LABEL
     } else {
         ""

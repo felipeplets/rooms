@@ -74,7 +74,9 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("error: failed to detect primary worktree: {e}");
             eprintln!();
-            eprintln!("rooms must be run from a git repository with a detectable primary worktree.");
+            eprintln!(
+                "rooms must be run from a git repository with a detectable primary worktree."
+            );
             eprintln!("Check your git worktree configuration and try again.");
             return ExitCode::FAILURE;
         }

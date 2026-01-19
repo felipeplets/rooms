@@ -9,7 +9,8 @@ use crate::terminal::debug_log;
 
 // UI message constants
 const PRUNABLE_WORKTREE_MESSAGE: &str = "Worktree is prunable - Press Enter to prune";
-const FAILED_WORKTREE_DEFAULT_MESSAGE: &str = "Worktree is in a failed state. Check logs for details.";
+const FAILED_WORKTREE_DEFAULT_MESSAGE: &str =
+    "Worktree is in a failed state. Check logs for details.";
 
 /// Convert vt100 color to ratatui Color.
 fn vt100_color_to_ratatui(color: vt100::Color, is_foreground: bool) -> Color {
