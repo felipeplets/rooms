@@ -4,8 +4,13 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::app::{App, Focus};
+use super::app::{App, Focus, RoomSection};
 use crate::terminal::debug_log;
+
+// UI message constants
+const PRUNABLE_WORKTREE_MESSAGE: &str = "Worktree is prunable - Press Enter to prune";
+const FAILED_WORKTREE_DEFAULT_MESSAGE: &str =
+    "Worktree is in a failed state. Check logs for details.";
 
 /// Convert vt100 color to ratatui Color.
 fn vt100_color_to_ratatui(color: vt100::Color, is_foreground: bool) -> Color {
@@ -71,7 +76,7 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let title = if let Some(room) = app.selected_room() {
+    let title = if let Some(room) = app.selected_room_info() {
         if app.scrollback_offset > 0 {
             format!(" {} [↑{}] ", room.name, app.scrollback_offset)
         } else {
@@ -140,24 +145,41 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
         }
 
         // Note: Cursor positioning is handled in app.rs after all rendering is complete
-    } else if let Some(room) = app.selected_room() {
-        // No session yet - show info
-        let content = vec![
+    } else if let Some(room) = app.selected_room_info() {
+        let branch = room.branch.as_deref().unwrap_or("detached");
+        let mut content = vec![
             Line::from(""),
             Line::from(Span::styled(
                 format!("Room: {}", room.name),
                 Style::default().fg(Color::White),
             )),
             Line::from(Span::styled(
-                format!("Branch: {}", room.branch),
+                format!("Branch: {}", branch),
                 Style::default().fg(Color::DarkGray),
             )),
             Line::from(""),
-            Line::from(Span::styled(
+        ];
+
+        if app.room_section(room) == RoomSection::Failed {
+            let detail = if room.is_prunable {
+                PRUNABLE_WORKTREE_MESSAGE.to_string()
+            } else if let Some(error) = room.last_error.as_deref() {
+                // Show the actual error message when available
+                format!("Worktree error: {}", error)
+            } else {
+                FAILED_WORKTREE_DEFAULT_MESSAGE.to_string()
+            };
+            content.push(Line::from(Span::styled(
+                detail,
+                Style::default().fg(Color::Red),
+            )));
+        } else {
+            // No session yet - show info
+            content.push(Line::from(Span::styled(
                 "Press Enter to start shell",
                 Style::default().fg(Color::Yellow),
-            )),
-        ];
+            )));
+        }
 
         let paragraph = Paragraph::new(content).alignment(Alignment::Center);
         frame.render_widget(paragraph, inner);

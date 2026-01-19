@@ -1,19 +1,18 @@
 # State Model
 
-## Room Data Structure
+## Worktree View Model
 
-### Room Fields
+### RoomInfo Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | UUID v4 | Unique identifier for the room |
-| `name` | String | User-given or auto-generated name (1-40 chars, lowercase, alphanumeric + hyphens) |
-| `branch` | String | Git branch name |
+| `name` | String | Worktree directory name |
+| `branch` | Option<String> | Git branch name (None if detached) |
 | `path` | PathBuf | Absolute path to worktree directory |
-| `created_at` | DateTime<Utc> | Creation timestamp |
-| `last_used_at` | DateTime<Utc> | Last selection timestamp |
-| `status` | RoomStatus | Current lifecycle state |
+| `status` | RoomStatus | Current lifecycle state (derived, may be overridden by transient state) |
+| `is_prunable` | bool | Worktree marked prunable by Git |
 | `last_error` | Option<String> | Error message if status is Error |
+| `is_primary` | bool | Primary worktree indicator |
 
 ### RoomStatus Enum
 
@@ -34,54 +33,19 @@ Creating → PostCreateRunning → Ready
 Creating → Error
 PostCreateRunning → Error
 Ready → Deleting → (removed)
-Any → Orphaned (on startup validation)
+Ready → Orphaned (prunable worktree)
 ```
 
-## State Persistence
+## Persistence
 
-### File Location
-```
-{repo_root}/.rooms/state.json
-```
-
-### File Format
-```json
-{
-  "rooms": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "quick-fox-a1b2",
-      "branch": "feature/auth",
-      "path": "/path/to/repo/.rooms/quick-fox-a1b2",
-      "created_at": "2025-01-16T14:23:45Z",
-      "last_used_at": "2025-01-16T15:30:00Z",
-      "status": "Ready",
-      "last_error": null
-    }
-  ]
-}
-```
-
-### Atomic Persistence
-
-State file writes MUST follow this pattern:
-1. Write content to temporary file (`state.json.tmp`)
-2. Rename temporary file to target (`state.json`)
-
-This ensures the state file is never partially written.
-
-### State Operations
-
-| Operation | Trigger |
-|-----------|---------|
-| Load | Application startup |
-| Save | Room creation, deletion, rename, status change |
-| Validate | Startup (marks missing worktrees as Orphaned) |
+Rooms state is derived from `git worktree list --porcelain` on each refresh.
+No persistent room state file is stored.
 
 ## In-Memory State
 
 The following state is kept in memory only and not persisted:
 
+- Transient room status overrides (creating, post-create, error)
 - PTY sessions (recreated on room selection)
 - Panel visibility toggles
 - Current selection index

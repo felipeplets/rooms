@@ -3,8 +3,6 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use uuid::Uuid;
-
 use crate::config::{PostCreateCommand, RunIn};
 
 /// Result of a single post-create command execution.
@@ -25,8 +23,8 @@ pub struct CommandResult {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PostCreateResult {
-    /// The room ID this result is for.
-    pub room_id: Uuid,
+    /// The room name this result is for.
+    pub room_name: String,
     /// Results of each command in order.
     pub command_results: Vec<CommandResult>,
     /// Whether all commands succeeded.
@@ -37,9 +35,9 @@ pub struct PostCreateResult {
 
 /// A handle to a running post-create operation.
 pub struct PostCreateHandle {
-    /// Room ID this operation is for.
+    /// Room name this operation is for.
     #[allow(dead_code)]
-    pub room_id: Uuid,
+    pub room_name: String,
     /// Receiver for the final result.
     receiver: Receiver<PostCreateResult>,
 }
@@ -56,12 +54,13 @@ impl PostCreateHandle {
 ///
 /// Returns a handle that can be polled for completion.
 pub fn run_post_create_commands(
-    room_id: Uuid,
+    room_name: String,
     room_path: PathBuf,
     repo_root: PathBuf,
     commands: Vec<PostCreateCommand>,
 ) -> PostCreateHandle {
     let (tx, rx): (Sender<PostCreateResult>, Receiver<PostCreateResult>) = mpsc::channel();
+    let handle_room_name = room_name.clone();
 
     thread::spawn(move || {
         let mut command_results = Vec::new();
@@ -94,7 +93,7 @@ pub fn run_post_create_commands(
         }
 
         let result = PostCreateResult {
-            room_id,
+            room_name,
             command_results,
             success: all_success,
             error: error_message,
@@ -105,7 +104,7 @@ pub fn run_post_create_commands(
     });
 
     PostCreateHandle {
-        room_id,
+        room_name: handle_room_name,
         receiver: rx,
     }
 }

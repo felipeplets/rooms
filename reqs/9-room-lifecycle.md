@@ -16,7 +16,7 @@
 
 3. **Execute creation**
    - Create worktree via git
-   - Add room to state
+   - Refresh worktree list
    - Run post-create commands (if configured)
 
 ### Quick Mode (Key: `A`)
@@ -86,9 +86,8 @@ Report:
 ### Execution
 
 1. Run `git worktree remove {path}`
-2. Remove room from state
-3. Save state
-4. Log deletion event
+2. Refresh worktree list
+3. Log deletion event
 
 ### Safety Guarantees
 
@@ -116,10 +115,9 @@ Key: `r` on selected room
 ### Execution
 
 1. Run `git worktree move {old_path} {new_path}`
-2. Update room name and path in state
-3. Save state
-4. Log rename event
-5. Destroy existing PTY session (working directory changed)
+2. Refresh worktree list
+3. Log rename event
+4. Destroy existing PTY session (working directory changed)
 
 ### Constraints
 

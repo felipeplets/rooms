@@ -2,6 +2,6 @@ pub mod command;
 mod repo;
 mod worktree;
 
-pub use repo::get_repo_root;
+pub use repo::{get_primary_worktree_path_from, get_repo_root};
 #[allow(unused_imports)] // Worktree will be used in later steps
-pub use worktree::{Worktree, list_worktrees_from};
+pub use worktree::{Worktree, list_worktrees_from, prune_worktrees_from};

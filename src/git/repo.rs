@@ -48,6 +48,40 @@ pub fn get_repo_root_from<P: AsRef<std::path::Path>>(path: P) -> Result<PathBuf,
     Ok(PathBuf::from(&result.stdout))
 }
 
+/// Get the primary worktree path for the repository at the given path.
+///
+/// Runs `git rev-parse --path-format=absolute --git-common-dir` and trims the
+/// trailing `/.git` from the result to return the primary worktree directory.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The path is not inside a git repository
+/// - Git command fails to execute
+pub fn get_primary_worktree_path_from<P: AsRef<std::path::Path>>(
+    repo_root: P,
+) -> Result<PathBuf, CommandError> {
+    let result = GitCommand::new("rev-parse")
+        .args(&["--path-format=absolute", "--git-common-dir"])
+        .current_dir(repo_root.as_ref())
+        .run()?;
+
+    if !result.success() {
+        return Err(CommandError::NotAGitRepo {
+            path: repo_root.as_ref().to_string_lossy().to_string(),
+        });
+    }
+
+    let mut common_dir = PathBuf::from(result.stdout);
+    if common_dir.file_name().and_then(|n| n.to_str()) == Some(".git")
+        && let Some(parent) = common_dir.parent()
+    {
+        common_dir = parent.to_path_buf();
+    }
+
+    Ok(common_dir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +169,27 @@ mod tests {
 
         // Detection from nested should return repo root
         let result = get_repo_root_from(&nested);
+        assert!(result.is_ok());
+
+        let detected = result.unwrap().canonicalize().unwrap();
+        let expected = temp_path.canonicalize().unwrap();
+        assert_eq!(detected, expected);
+    }
+
+    #[test]
+    fn test_get_primary_worktree_path_from_repo_root() {
+        use std::process::Command;
+
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let temp_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(temp_path)
+            .output()
+            .expect("failed to run git init");
+
+        let result = get_primary_worktree_path_from(temp_path);
         assert!(result.is_ok());
 
         let detected = result.unwrap().canonicalize().unwrap();

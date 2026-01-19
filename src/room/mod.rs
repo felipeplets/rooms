@@ -8,7 +8,7 @@ mod post_create;
 mod remove;
 mod rename;
 
-pub use create::{CreateRoomError, CreateRoomOptions, create_room};
+pub use create::{CreateRoomError, CreateRoomOptions, CreatedRoom, create_room};
 pub use discovery::{DiscoveryError, discover_rooms};
 pub use model::{RoomInfo, RoomStatus};
 pub use naming::generate_room_name;
