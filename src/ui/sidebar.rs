@@ -42,6 +42,7 @@ fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
 /// Render the sidebar panel showing the list of rooms.
 pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     let is_focused = app.focus == Focus::Sidebar;
+    const ITEM_PADDING: u16 = 1;
 
     // Build border style based on focus
     let border_style = if is_focused {
@@ -54,6 +55,9 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
         .title(" Rooms ")
         .borders(Borders::ALL)
         .border_style(border_style);
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
 
     if app.state.rooms.is_empty() {
         // Show empty state
@@ -70,22 +74,24 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
             )),
         ];
         let paragraph = ratatui::widgets::Paragraph::new(empty_msg)
-            .block(block)
             .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(paragraph, area);
+        frame.render_widget(paragraph, inner);
         return;
     }
 
     // Calculate available width for text (area width minus borders)
-    let available_width = area.width.saturating_sub(2) as usize;
+    let available_width = inner.width as usize;
+    let content_width = available_width.saturating_sub((ITEM_PADDING * 2) as usize);
 
     // Status icon + space takes 2 characters
     const STATUS_PREFIX_WIDTH: usize = 2;
     // Branch indicator "  └─ " takes 5 characters
     const BRANCH_PREFIX_WIDTH: usize = 5;
 
-    let room_name_max_width = available_width.saturating_sub(STATUS_PREFIX_WIDTH);
-    let branch_name_max_width = available_width.saturating_sub(BRANCH_PREFIX_WIDTH);
+    let room_name_max_width = content_width.saturating_sub(STATUS_PREFIX_WIDTH);
+    let branch_name_max_width = content_width.saturating_sub(BRANCH_PREFIX_WIDTH);
+    let left_pad = " ".repeat(ITEM_PADDING as usize);
+    let right_pad = " ".repeat(ITEM_PADDING as usize);
 
     // Build list items
     let items: Vec<ListItem> = app
@@ -114,28 +120,37 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
             let branch_name = truncate_with_ellipsis(&room.branch, branch_name_max_width);
 
             let content = vec![
+                // Line 0: Top padding
+                Line::from(vec![
+                    Span::raw(left_pad.clone()),
+                    Span::raw(right_pad.clone()),
+                ]),
                 // Line 1: Status icon + Room name
                 Line::from(vec![
-                    Span::styled(
-                        format!("{} ", status_icon),
-                        Style::default().fg(status_color),
-                    ),
+                    Span::raw(left_pad.clone()),
+                    Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)),
                     Span::styled(room_name, style),
+                    Span::raw(right_pad.clone()),
                 ]),
                 // Line 2: Branch indicator + Branch name
                 Line::from(vec![
+                    Span::raw(left_pad.clone()),
                     Span::styled("  └─ ", Style::default().fg(Color::DarkGray)),
                     Span::styled(branch_name, Style::default().fg(Color::DarkGray)),
+                    Span::raw(right_pad.clone()),
                 ]),
-                // Line 3: Empty line for spacing
-                Line::from(""),
+                // Line 3: Bottom padding
+                Line::from(vec![
+                    Span::raw(left_pad.clone()),
+                    Span::raw(right_pad.clone()),
+                ]),
             ];
 
             ListItem::new(content).style(style)
         })
         .collect();
 
-    let list = List::new(items).block(block).highlight_style(
+    let list = List::new(items).highlight_style(
         Style::default()
             .fg(Color::Black)
             .bg(Color::Cyan)
@@ -146,7 +161,7 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     let mut list_state = ListState::default();
     list_state.select(Some(app.selected_index));
 
-    frame.render_stateful_widget(list, area, &mut list_state);
+    frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
 /// Get the status icon for a room status.
