@@ -64,6 +64,45 @@ rooms --help
 | `Ctrl+b` | Toggle sidebar |
 | `Ctrl+t` | Toggle terminal |
 
+## Development
+
+### Quick Start with GitHub Codespaces
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/felipeplets/rooms)
+
+This repository includes a complete development container configuration for GitHub Codespaces. Click the badge above to start coding immediately in a fully configured environment with:
+
+- Rust toolchain (rustc, cargo, rustfmt, clippy)
+- Bun runtime (for release scripts)
+- GitHub Copilot integration
+- Claude Code support
+- All VS Code extensions for optimal Rust development
+
+See [`.devcontainer/README.md`](.devcontainer/README.md) for more details.
+
+### Local Development
+
+```bash
+# Clone the repository
+git clone https://github.com/felipeplets/rooms.git
+cd rooms
+
+# Build the project
+cargo build
+
+# Run tests
+cargo test
+
+# Format code
+cargo fmt
+
+# Run linting
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Run the application
+cargo run
+```
+
 ## Non-Goals
 
 - Remote git operations (fetch/push/pull) - use the embedded shell

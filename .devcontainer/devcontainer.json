@@ -1,0 +1,124 @@
+{
+  "name": "rooms - Rust TUI Development",
+  "image": "mcr.microsoft.com/devcontainers/rust:2-trixie",
+
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "latest",
+      "ppa": false
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "nodeGypDependencies": true,
+      "version": "lts",
+      "nvmVersion": "latest"
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Rust development essentials
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates",
+        "vadimcn.vscode-lldb",
+
+        // AI assistants - GitHub Copilot
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+
+        // AI assistants - Claude (Anthropic)
+        "anthropic.claude-vscode",
+
+        // Git and GitHub integration
+        "GitHub.vscode-pull-request-github",
+        "eamodio.gitlens",
+
+        // Code quality and formatting
+        "EditorConfig.EditorConfig",
+        "streetsidesoftware.code-spell-checker",
+
+        // Terminal and shell support
+        "ms-vscode.remote-explorer"
+      ],
+
+      "settings": {
+        // Rust-analyzer configuration
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "rust-analyzer.checkOnSave.extraArgs": [
+          "--all-targets",
+          "--all-features",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "rust-analyzer.rustfmt.extraArgs": [
+          "+stable"
+        ],
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.inlayHints.parameterHints.enable": true,
+        "rust-analyzer.inlayHints.typeHints.enable": true,
+
+        // Editor configuration
+        "editor.formatOnSave": true,
+        "editor.rulers": [100],
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false,
+        // Files configuration
+        "files.eol": "\n",
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "files.exclude": {
+          "**/.git": true,
+          "**/target": true,
+          "**/.rooms": true
+        },
+
+        // GitHub Copilot configuration
+        "github.copilot.enable": {
+          "*": true,
+          "plaintext": false,
+          "markdown": true,
+          "rust": true,
+          "toml": true,
+          "json": true,
+          "yaml": true
+        },
+        "github.copilot.editor.enableAutoCompletions": true,
+
+        // Terminal configuration
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.scrollback": 10000,
+
+        // Language-specific settings
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "[toml]": {
+          "editor.defaultFormatter": "tamasfe.even-better-toml"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "vscode.json-language-features"
+        },
+
+        // Search configuration
+        "search.exclude": {
+          "**/target": true,
+          "**/.rooms": true,
+          "**/Cargo.lock": true
+        }
+      }
+    }
+  },
+
+  "remoteUser": "vscode",
+
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached"
+  ],
+
+  "updateContentCommand": "cargo fetch"
+}
