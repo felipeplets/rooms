@@ -1670,10 +1670,6 @@ impl App {
         state.select(Some(menu.selected));
         frame.render_stateful_widget(list, rect, &mut state);
     }
-
-    fn paste_text(&mut self, text: String) {
-        self.handle_paste(text);
-    }
 }
 
 fn move_selection_position(
