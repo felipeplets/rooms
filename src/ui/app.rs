@@ -120,6 +120,18 @@ pub struct App {
 
     /// Whether to skip post-create commands this session.
     skip_post_create: bool,
+
+    /// Active text selection in the PTY, if any.
+    selection: Option<Selection>,
+
+    /// Whether a selection drag is in progress.
+    selection_dragging: bool,
+
+    /// Start position for a pending selection drag.
+    selection_anchor: Option<(u16, u16)>,
+
+    /// Context menu state for PTY selection.
+    context_menu: Option<ContextMenuState>,
 }
 
 impl App {
@@ -169,6 +181,10 @@ impl App {
             post_create_handles: Vec::new(),
             event_log,
             skip_post_create,
+            selection: None,
+            selection_dragging: false,
+            selection_anchor: None,
+            context_menu: None,
         };
 
         app.sort_rooms_for_sidebar();
@@ -411,6 +427,10 @@ impl App {
             }
         }
 
+        if let Some(menu) = &self.context_menu {
+            self.render_context_menu(frame, menu);
+        }
+
         // Render status message if present
         if let Some(ref msg) = self.status_message {
             let status_area = Rect {
@@ -521,6 +541,10 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if self.handle_context_menu_key(key) {
+            return;
+        }
+
         // Handle confirmation dialog first if active
         if self.confirm.is_active() {
             self.handle_confirm_key(key);
@@ -800,6 +824,7 @@ impl App {
         // Reset scrollback when user types (they're interacting with live terminal)
         self.scrollback_offset = 0;
         self.prev_scrollback_offset = 0;
+        self.clear_selection();
 
         if let Some(session) = self.current_session_mut()
             && let Err(e) = session.write(&bytes)
@@ -809,6 +834,10 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if self.handle_context_menu_mouse(mouse) {
+            return;
+        }
+
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 // Only scroll in terminal mode
@@ -827,6 +856,26 @@ impl App {
                     // Scroll down by 3 lines, minimum 0 (at bottom)
                     self.scrollback_offset = self.scrollback_offset.saturating_sub(3);
                 }
+            }
+            MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                let position = self.mouse_to_screen_position(mouse);
+                if let Some((row, col)) = position {
+                    if !self.selection_contains(row, col) {
+                        self.clear_selection();
+                    }
+                    self.start_selection(mouse);
+                } else {
+                    self.clear_selection();
+                }
+            }
+            MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+                self.update_selection(mouse);
+            }
+            MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+                self.end_selection();
+            }
+            MouseEventKind::Down(crossterm::event::MouseButton::Right) => {
+                self.open_context_menu(mouse);
             }
             _ => {}
         }
@@ -1241,6 +1290,524 @@ impl App {
 
         // Show cursor when PTY wants it visible.
         !screen.hide_cursor()
+    }
+
+    fn main_scene_inner_rect(&self) -> Rect {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: self.last_size.0,
+            height: self.last_size.1,
+        };
+        let chunks = self.calculate_layout(area);
+        let main_area =
+            Self::get_main_scene_area(area, &chunks, self.sidebar_visible, self.main_scene_visible);
+        Rect {
+            x: main_area.x.saturating_add(1),
+            y: main_area.y.saturating_add(1),
+            width: main_area.width.saturating_sub(2),
+            height: main_area.height.saturating_sub(2),
+        }
+    }
+
+    fn selection_bounds(&self) -> Option<SelectionBounds> {
+        let selection = self.selection.as_ref()?;
+        Some(selection.bounds())
+    }
+
+    pub fn selection_contains(&self, row: u16, col: u16) -> bool {
+        let Some(bounds) = self.selection_bounds() else {
+            return false;
+        };
+        bounds.contains(row, col)
+    }
+
+    fn clear_selection(&mut self) {
+        self.selection = None;
+        self.selection_dragging = false;
+        self.selection_anchor = None;
+    }
+
+    fn start_selection(&mut self, mouse: MouseEvent) {
+        if self.focus != Focus::MainScene || self.scrollback_offset != 0 {
+            return;
+        }
+        if self.current_session().is_none() {
+            return;
+        }
+        let Some(position) = self.mouse_to_screen_position(mouse) else {
+            return;
+        };
+        if self.selection_contains(position.0, position.1) {
+            self.selection_anchor = Some(position);
+            return;
+        }
+        self.clear_selection();
+        self.selection_anchor = Some(position);
+    }
+
+    fn update_selection(&mut self, mouse: MouseEvent) {
+        let Some(anchor) = self.selection_anchor else {
+            return;
+        };
+        let Some(position) = self.mouse_to_screen_position(mouse) else {
+            return;
+        };
+        self.selection = Some(Selection {
+            start: anchor,
+            end: position,
+        });
+        self.selection_dragging = true;
+    }
+
+    fn end_selection(&mut self) {
+        self.selection_dragging = false;
+        self.selection_anchor = None;
+    }
+
+    fn open_context_menu(&mut self, mouse: MouseEvent) {
+        if self.focus != Focus::MainScene {
+            return;
+        }
+
+        let menu_items = vec![
+            ContextMenuItem::Copy,
+            ContextMenuItem::Paste,
+            ContextMenuItem::Close,
+        ];
+
+        self.context_menu = Some(ContextMenuState {
+            items: menu_items,
+            selected: 0,
+            position: (mouse.column, mouse.row),
+        });
+    }
+
+    fn handle_context_menu_key(&mut self, key: KeyEvent) -> bool {
+        let Some(menu) = &mut self.context_menu else {
+            return false;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.context_menu = None;
+            }
+            KeyCode::Up => {
+                menu.selected = menu.selected.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                if menu.selected + 1 < menu.items.len() {
+                    menu.selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                let action = menu.items.get(menu.selected).copied();
+                self.context_menu = None;
+                if let Some(action) = action {
+                    self.apply_context_menu_action(action);
+                }
+            }
+            _ => {}
+        }
+
+        true
+    }
+
+    fn handle_context_menu_mouse(&mut self, mouse: MouseEvent) -> bool {
+        let Some(menu) = &self.context_menu else {
+            return false;
+        };
+        if !matches!(
+            mouse.kind,
+            MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        ) {
+            return false;
+        }
+
+        let menu_rect = self.context_menu_rect(menu);
+        if !menu_rect.contains((mouse.column, mouse.row).into()) {
+            self.context_menu = None;
+            return true;
+        }
+
+        let index = mouse
+            .row
+            .saturating_sub(menu_rect.y + 1)
+            .min(menu.items.len().saturating_sub(1) as u16) as usize;
+        let action = menu.items.get(index).copied();
+        self.context_menu = None;
+        if let Some(action) = action {
+            self.apply_context_menu_action(action);
+        }
+        true
+    }
+
+    fn apply_context_menu_action(&mut self, action: ContextMenuItem) {
+        match action {
+            ContextMenuItem::Copy => {
+                if let Some(text) = self.selection_text() {
+                    match copy_to_clipboard(&text) {
+                        Ok(()) => {
+                            self.status_message = Some("Selection copied".to_string());
+                        }
+                        Err(e) => {
+                            self.status_message = Some(format!("Copy failed: {}", e));
+                        }
+                    }
+                } else {
+                    self.status_message = Some("No selection to copy".to_string());
+                }
+            }
+            ContextMenuItem::Paste => match paste_from_clipboard() {
+                Ok(text) => self.paste_text(text),
+                Err(e) => self.status_message = Some(format!("Paste failed: {}", e)),
+            },
+            ContextMenuItem::Close => {}
+        }
+    }
+
+    fn selection_text(&self) -> Option<String> {
+        let selection = self.selection.as_ref()?;
+        let session = self.current_session()?;
+        let screen = session.screen();
+        let (rows, cols) = screen.size();
+        if rows == 0 || cols == 0 {
+            return None;
+        }
+
+        let bounds = selection.bounds();
+        let max_row = rows.saturating_sub(1);
+        let max_col = cols.saturating_sub(1);
+        let bounds = SelectionBounds {
+            start_row: bounds.start_row.min(max_row),
+            start_col: bounds.start_col.min(max_col),
+            end_row: bounds.end_row.min(max_row),
+            end_col: bounds.end_col.min(max_col),
+        };
+        let mut lines = Vec::new();
+
+        for row in bounds.start_row..=bounds.end_row {
+            let mut line = String::new();
+            let col_start = if row == bounds.start_row {
+                bounds.start_col
+            } else {
+                0
+            };
+            let col_end = if row == bounds.end_row {
+                bounds.end_col
+            } else {
+                cols.saturating_sub(1)
+            };
+
+            for col in col_start..=col_end {
+                if let Some(cell) = screen.cell(row, col) {
+                    line.push(cell.contents().chars().next().unwrap_or(' '));
+                } else {
+                    line.push(' ');
+                }
+            }
+
+            lines.push(line.trim_end().to_string());
+        }
+
+        Some(lines.join("\n"))
+    }
+
+    fn mouse_to_screen_position(&self, mouse: MouseEvent) -> Option<(u16, u16)> {
+        let inner = self.main_scene_inner_rect();
+        if !inner.contains((mouse.column, mouse.row).into()) {
+            return None;
+        }
+        let col = mouse.column.saturating_sub(inner.x);
+        let row = mouse.row.saturating_sub(inner.y);
+        Some((row, col))
+    }
+
+    fn context_menu_rect(&self, menu: &ContextMenuState) -> Rect {
+        let label_width = menu
+            .items
+            .iter()
+            .map(|item| item.label().len() as u16)
+            .max()
+            .unwrap_or(0);
+        let width = (label_width + 4).max(12);
+        let height = menu.items.len() as u16 + 2;
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: self.last_size.0,
+            height: self.last_size.1,
+        };
+        let mut x = menu.position.0;
+        let mut y = menu.position.1;
+        if x + width > area.width {
+            x = area.width.saturating_sub(width);
+        }
+        if y + height > area.height {
+            y = area.height.saturating_sub(height);
+        }
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    fn render_context_menu(&self, frame: &mut ratatui::Frame, menu: &ContextMenuState) {
+        use ratatui::widgets::{Block, Borders, Clear, List, ListItem};
+
+        let rect = self.context_menu_rect(menu);
+        frame.render_widget(Clear, rect);
+
+        let items: Vec<ListItem> = menu
+            .items
+            .iter()
+            .map(|item| ListItem::new(item.label()))
+            .collect();
+
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title(" Selection "))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+
+        let mut state = ratatui::widgets::ListState::default();
+        state.select(Some(menu.selected));
+        frame.render_stateful_widget(list, rect, &mut state);
+    }
+
+    fn paste_text(&mut self, text: String) {
+        if self.focus != Focus::MainScene {
+            return;
+        }
+        if let Some(session) = self.current_session_mut() {
+            let start = b"\x1b[200~";
+            let end = b"\x1b[201~";
+            let _ = session.write(start);
+            let _ = session.write(text.as_bytes());
+            if let Err(e) = session.write(end) {
+                self.status_message = Some(format!("Paste error: {}", e));
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Selection {
+    start: (u16, u16),
+    end: (u16, u16),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SelectionBounds {
+    start_row: u16,
+    start_col: u16,
+    end_row: u16,
+    end_col: u16,
+}
+
+impl Selection {
+    fn bounds(&self) -> SelectionBounds {
+        let (row_a, col_a) = self.start;
+        let (row_b, col_b) = self.end;
+
+        if row_a < row_b || (row_a == row_b && col_a <= col_b) {
+            SelectionBounds {
+                start_row: row_a,
+                start_col: col_a,
+                end_row: row_b,
+                end_col: col_b,
+            }
+        } else {
+            SelectionBounds {
+                start_row: row_b,
+                start_col: col_b,
+                end_row: row_a,
+                end_col: col_a,
+            }
+        }
+    }
+}
+
+impl SelectionBounds {
+    fn contains(&self, row: u16, col: u16) -> bool {
+        if row < self.start_row || row > self.end_row {
+            return false;
+        }
+        if self.start_row == self.end_row {
+            return col >= self.start_col && col <= self.end_col;
+        }
+        if row == self.start_row {
+            return col >= self.start_col;
+        }
+        if row == self.end_row {
+            return col <= self.end_col;
+        }
+        true
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ContextMenuItem {
+    Copy,
+    Paste,
+    Close,
+}
+
+impl ContextMenuItem {
+    fn label(self) -> &'static str {
+        match self {
+            ContextMenuItem::Copy => "Copy",
+            ContextMenuItem::Paste => "Paste",
+            ContextMenuItem::Close => "Close",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ContextMenuState {
+    items: Vec<ContextMenuItem>,
+    selected: usize,
+    position: (u16, u16),
+}
+
+fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Write;
+        let mut child = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        child.wait().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::io::Write;
+        let mut child = std::process::Command::new("clip")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        child.wait().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        use std::io::Write;
+        let mut child = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        child.wait().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Clipboard not supported on this platform".to_string())
+}
+
+fn paste_from_clipboard() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("pbpaste")
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("Failed to read clipboard".to_string());
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Clipboard"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("Failed to read clipboard".to_string());
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let output = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-o"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("Failed to read clipboard".to_string());
+        }
+        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Clipboard not supported on this platform".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_selection_bounds_ordering() {
+        let selection = Selection {
+            start: (3, 5),
+            end: (1, 2),
+        };
+        let bounds = selection.bounds();
+        assert_eq!(bounds.start_row, 1);
+        assert_eq!(bounds.start_col, 2);
+        assert_eq!(bounds.end_row, 3);
+        assert_eq!(bounds.end_col, 5);
+    }
+
+    #[test]
+    fn test_selection_bounds_contains_single_line() {
+        let bounds = SelectionBounds {
+            start_row: 2,
+            start_col: 3,
+            end_row: 2,
+            end_col: 5,
+        };
+        assert!(bounds.contains(2, 3));
+        assert!(bounds.contains(2, 5));
+        assert!(!bounds.contains(2, 6));
+        assert!(!bounds.contains(1, 3));
+    }
+
+    #[test]
+    fn test_selection_bounds_contains_multi_line() {
+        let bounds = SelectionBounds {
+            start_row: 1,
+            start_col: 4,
+            end_row: 3,
+            end_col: 2,
+        };
+        assert!(bounds.contains(1, 4));
+        assert!(bounds.contains(2, 0));
+        assert!(bounds.contains(3, 2));
+        assert!(!bounds.contains(1, 3));
+        assert!(!bounds.contains(3, 3));
     }
 }
 

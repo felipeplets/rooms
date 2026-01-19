@@ -79,6 +79,17 @@ These keys are NOT forwarded to the PTY:
 - `Ctrl+t` (toggles terminal)
 - `PageUp` / `PageDown` (scrollback navigation)
 
+## Selection & Context Menu
+
+### Mouse Selection
+- Click and drag in the PTY to select text
+- Selection highlights the chosen region
+
+### Context Menu
+- Right-click opens a context menu with selection actions
+- Supported actions: Copy, Paste
+- Clicking outside the menu dismisses it
+
 ### Bracketed Paste Mode
 
 - Enabled on terminal startup for proper multi-line paste handling
