@@ -137,6 +137,15 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
         if is_focused {
             let cursor_x = inner.x + cursor_col;
             let cursor_y = inner.y + cursor_row;
+
+            // Debug logging
+            if debug_log::is_enabled() {
+                debug_log::log_debug(&format!(
+                    "CURSOR: screen=({},{}) inner=({},{}) final=({},{})",
+                    cursor_row, cursor_col, inner.x, inner.y, cursor_x, cursor_y
+                ));
+            }
+
             if cursor_x < inner.x + inner.width && cursor_y < inner.y + inner.height {
                 frame.set_cursor_position((cursor_x, cursor_y));
             }

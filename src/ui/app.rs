@@ -211,7 +211,7 @@ impl App {
 
         // Force a full clear to sync ratatui's internal state with the actual terminal
         terminal.clear()?;
-        
+
         // Ensure cursor is shown initially
         terminal.show_cursor()?;
 
@@ -255,15 +255,14 @@ impl App {
             }
 
             // Draw UI
-            terminal.draw(|frame| self.render(frame))?;
-
-            // Ensure cursor visibility is set correctly after draw.
-            // Ratatui's draw() may change cursor state, so we need to restore it.
-            // We only explicitly show the cursor when needed, and let it remain
-            // hidden otherwise (ratatui's default behavior).
+            // Show cursor before draw if needed, so ratatui can position it correctly
             if self.should_show_cursor() {
                 terminal.show_cursor()?;
+            } else {
+                terminal.hide_cursor()?;
             }
+
+            terminal.draw(|frame| self.render(frame))?;
 
             // Handle input (with 50ms timeout for PTY responsiveness)
             if event::poll(Duration::from_millis(50))? {
