@@ -5,7 +5,8 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::git::command::{CommandError, GitCommand};
-use crate::state::RoomsState;
+use crate::git::list_worktrees_from;
+use crate::room::discovery::is_worktree_in_rooms_dir;
 
 #[derive(Error, Debug)]
 pub enum RemoveRoomError {
@@ -127,29 +128,31 @@ pub fn remove_worktree_force<P: AsRef<Path>>(worktree_path: P) -> Result<(), Rem
 ///
 /// Returns the removed room's name on success.
 pub fn remove_room(
-    state: &mut RoomsState,
+    repo_root: &Path,
+    rooms_dir: &Path,
     room_name: &str,
     force: bool,
 ) -> Result<String, RemoveRoomError> {
-    // Find the room
-    let room = state
-        .find_by_name(room_name)
+    let worktrees = list_worktrees_from(repo_root)?;
+    let rooms_dir_canonical = rooms_dir
+        .canonicalize()
+        .unwrap_or_else(|_| rooms_dir.to_path_buf());
+
+    let worktree = worktrees
+        .iter()
+        .find(|worktree| {
+            is_worktree_in_rooms_dir(worktree, &rooms_dir_canonical)
+                && worktree.name() == Some(room_name)
+        })
         .ok_or_else(|| RemoveRoomError::NotFound(room_name.to_string()))?;
 
-    let path = room.path.clone();
-    let name = room.name.clone();
-
-    // Remove the worktree
     if force {
-        remove_worktree_force(&path)?;
+        remove_worktree_force(&worktree.path)?;
     } else {
-        remove_worktree(&path)?;
+        remove_worktree(&worktree.path)?;
     }
 
-    // Remove from state
-    state.remove_by_name(room_name);
-
-    Ok(name)
+    Ok(room_name.to_string())
 }
 
 #[cfg(test)]
@@ -241,5 +244,29 @@ mod tests {
     fn test_dirty_status_nonexistent_path() {
         let status = DirtyStatus::check("/nonexistent/path").unwrap();
         assert!(!status.is_dirty);
+    }
+
+    #[test]
+    fn test_remove_room_removes_worktree() {
+        let (_temp_dir, repo_path) = setup_test_repo();
+        let rooms_dir = repo_path.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+
+        let worktree_path = rooms_dir.join("remove-me");
+        Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                "remove-me",
+                &worktree_path.to_string_lossy(),
+            ])
+            .current_dir(&repo_path)
+            .output()
+            .unwrap();
+
+        let result = remove_room(&repo_path, &rooms_dir, "remove-me", true);
+        assert!(result.is_ok());
+        assert!(!worktree_path.exists());
     }
 }

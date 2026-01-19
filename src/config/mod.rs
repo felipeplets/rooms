@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-/// Default directory name for rooms data within a repository.
-pub const DEFAULT_ROOMS_DIR: &str = ".rooms";
+/// Directory name for rooms config and logs within a repository.
+pub const CONFIG_DIR: &str = ".rooms";
+
+/// Default directory for rooms worktrees (parent of primary worktree).
+pub const DEFAULT_ROOMS_DIR: &str = "..";
 
 /// Configuration file name.
 pub const CONFIG_FILE: &str = "config.toml";
@@ -58,7 +61,7 @@ pub struct Config {
     #[serde(default)]
     pub base_branch: Option<String>,
 
-    /// Directory name for rooms data (relative to repo root).
+    /// Directory name for rooms data (relative to primary worktree).
     #[serde(default = "default_rooms_dir")]
     pub rooms_dir: String,
 
@@ -99,13 +102,26 @@ impl Config {
 
     /// Load configuration from the default location within a repository.
     pub fn load_from_repo<P: AsRef<Path>>(repo_root: P) -> Result<Self, ConfigError> {
-        let config_path = repo_root.as_ref().join(DEFAULT_ROOMS_DIR).join(CONFIG_FILE);
+        let config_path = repo_root.as_ref().join(CONFIG_DIR).join(CONFIG_FILE);
         Self::load(config_path)
     }
 
     /// Get the full path to the rooms directory.
-    pub fn rooms_path<P: AsRef<Path>>(&self, repo_root: P) -> PathBuf {
-        repo_root.as_ref().join(&self.rooms_dir)
+    pub fn rooms_path<P: AsRef<Path>>(&self, primary_worktree: P) -> PathBuf {
+        let primary = primary_worktree.as_ref();
+        if self.rooms_dir == ".." {
+            return primary
+                .parent()
+                .map(|parent| parent.to_path_buf())
+                .unwrap_or_else(|| primary.to_path_buf());
+        }
+
+        let rooms_path = PathBuf::from(&self.rooms_dir);
+        if rooms_path.is_absolute() {
+            rooms_path
+        } else {
+            primary.join(rooms_path)
+        }
     }
 }
 
@@ -116,7 +132,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.rooms_dir, ".rooms");
+        assert_eq!(config.rooms_dir, "..");
         assert!(config.base_branch.is_none());
         assert!(config.post_create_commands.is_empty());
     }
@@ -125,7 +141,7 @@ mod tests {
     fn test_parse_minimal_config() {
         let toml = "";
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.rooms_dir, ".rooms");
+        assert_eq!(config.rooms_dir, "..");
     }
 
     #[test]
@@ -165,13 +181,13 @@ run_in = "repo_root"
     #[test]
     fn test_load_nonexistent_returns_default() {
         let config = Config::load("/nonexistent/path/config.toml").unwrap();
-        assert_eq!(config.rooms_dir, ".rooms");
+        assert_eq!(config.rooms_dir, "..");
     }
 
     #[test]
     fn test_rooms_path() {
         let config = Config::default();
         let path = config.rooms_path("/repo");
-        assert_eq!(path, PathBuf::from("/repo/.rooms"));
+        assert_eq!(path, PathBuf::from("/"));
     }
 }

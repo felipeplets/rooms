@@ -20,15 +20,13 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use uuid::Uuid;
-
 use crate::config::Config;
-use crate::git::Worktree;
+use crate::git::prune_worktrees_from;
 use crate::room::{
-    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo, create_room, discover_rooms,
-    remove_room, rename_room, run_post_create_commands,
+    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo, RoomStatus, create_room,
+    discover_rooms, remove_room, rename_room, run_post_create_commands,
 };
-use crate::state::{EventLog, RoomStatus, RoomsState, TransientStateStore};
+use crate::state::{EventLog, TransientStateStore};
 use crate::terminal::PtySession;
 
 use super::confirm::{ConfirmState, render_confirm};
@@ -48,6 +46,13 @@ pub enum Focus {
     MainScene,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoomSection {
+    Active,
+    Inactive,
+    Failed,
+}
+
 /// Application state for the TUI.
 pub struct App {
     /// Path to the repository root.
@@ -59,17 +64,14 @@ pub struct App {
     /// Application configuration.
     pub config: Config,
 
-    /// Current rooms state (legacy, will be removed).
-    pub state: RoomsState,
-
     /// Discovered rooms from git worktrees.
     pub rooms: Vec<RoomInfo>,
 
     /// Transient state store for in-memory room states.
     pub transient: TransientStateStore,
 
-    /// Discovered git worktrees.
-    pub worktrees: Vec<Worktree>,
+    /// Primary worktree path.
+    pub primary_worktree: PathBuf,
 
     /// Currently selected room index.
     pub selected_index: usize,
@@ -126,31 +128,31 @@ impl App {
         repo_root: PathBuf,
         rooms_dir: PathBuf,
         config: Config,
-        state: RoomsState,
-        worktrees: Vec<Worktree>,
+        primary_worktree: PathBuf,
         skip_post_create: bool,
     ) -> Self {
         let event_log = EventLog::new(&rooms_dir);
         let transient = TransientStateStore::new();
 
         // Discover rooms from git worktrees
-        let rooms = match discover_rooms(&repo_root, &rooms_dir, &transient) {
-            Ok(rooms) => rooms,
-            Err(e) => {
-                // Log the error for debugging - the app will start with empty rooms
-                event_log.log_error(None, &format!("Failed to discover rooms at startup: {}", e));
-                Vec::new()
-            }
-        };
+        let rooms =
+            match discover_rooms(&repo_root, &rooms_dir, Some(&primary_worktree), &transient) {
+                Ok(rooms) => rooms,
+                Err(e) => {
+                    // Log the error for debugging - the app will start with empty rooms
+                    event_log
+                        .log_error(None, &format!("Failed to discover rooms at startup: {}", e));
+                    Vec::new()
+                }
+            };
 
-        Self {
+        let mut app = Self {
             repo_root,
             rooms_dir,
             config,
-            state,
             rooms,
             transient,
-            worktrees,
+            primary_worktree,
             selected_index: 0,
             focus: Focus::default(),
             sidebar_visible: true,
@@ -167,7 +169,10 @@ impl App {
             post_create_handles: Vec::new(),
             event_log,
             skip_post_create,
-        }
+        };
+
+        app.sort_rooms_for_sidebar();
+        app
     }
 
     /// Refresh the rooms list from git worktrees.
@@ -180,9 +185,15 @@ impl App {
     pub fn refresh_rooms(&mut self) -> bool {
         let selected_name = self.rooms.get(self.selected_index).map(|r| r.name.clone());
 
-        match discover_rooms(&self.repo_root, &self.rooms_dir, &self.transient) {
+        match discover_rooms(
+            &self.repo_root,
+            &self.rooms_dir,
+            Some(&self.primary_worktree),
+            &self.transient,
+        ) {
             Ok(rooms) => {
                 self.rooms = rooms;
+                self.sort_rooms_for_sidebar();
 
                 // Restore selection if the room still exists
                 if let Some(name) = selected_name
@@ -204,6 +215,44 @@ impl App {
                 false
             }
         }
+    }
+
+    fn sort_rooms_for_sidebar(&mut self) {
+        let selected_name = self.rooms.get(self.selected_index).map(|r| r.name.clone());
+        let active_rooms: std::collections::HashSet<String> =
+            self.sessions.keys().cloned().collect();
+
+        self.rooms.sort_by(|a, b| {
+            let a_key = (
+                room_section_rank_with_active(a, &active_rooms),
+                a.name.to_lowercase(),
+            );
+            let b_key = (
+                room_section_rank_with_active(b, &active_rooms),
+                b.name.to_lowercase(),
+            );
+            a_key.cmp(&b_key)
+        });
+
+        if let Some(name) = selected_name
+            && let Some(idx) = self.rooms.iter().position(|room| room.name == name)
+        {
+            self.selected_index = idx;
+        }
+    }
+
+    pub fn room_section(&self, room: &RoomInfo) -> RoomSection {
+        if self.room_is_failed(room) {
+            RoomSection::Failed
+        } else if self.sessions.contains_key(&room.name) {
+            RoomSection::Active
+        } else {
+            RoomSection::Inactive
+        }
+    }
+
+    fn room_is_failed(&self, room: &RoomInfo) -> bool {
+        room.is_prunable || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned)
     }
 
     /// Run the application main loop.
@@ -605,7 +654,33 @@ impl App {
                 self.select_previous();
             }
             KeyCode::Enter => {
-                if self.main_scene_visible && self.selected_room_info().is_some() {
+                if !self.main_scene_visible {
+                    return;
+                }
+
+                let Some(room) = self.selected_room_info() else {
+                    return;
+                };
+
+                if self.room_section(room) == RoomSection::Failed {
+                    if room.is_prunable {
+                        match prune_worktrees_from(&self.repo_root) {
+                            Ok(_) => {
+                                self.refresh_rooms();
+                                self.status_message = Some("Pruned stale worktrees".to_string());
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some(format!("Failed to prune worktrees: {e}"));
+                            }
+                        }
+                    } else {
+                        self.status_message = Some("Cannot open failed worktree".to_string());
+                    }
+                    return;
+                }
+
+                if self.main_scene_visible {
                     // Start PTY session if not already running
                     let (cols, rows) = self.calculate_pty_size();
                     self.get_or_create_session(cols, rows);
@@ -799,24 +874,13 @@ impl App {
         self.rooms.get(self.selected_index)
     }
 
-    /// Get the currently selected room from state (legacy), if any.
-    ///
-    /// Note: `selected_index` is based on `self.rooms` (RoomInfo list from git worktrees).
-    /// This method maps the selection to the legacy `state.rooms` list by looking up
-    /// the room by name.
-    pub fn selected_room(&self) -> Option<&crate::state::Room> {
-        let info = self.selected_room_info()?;
-        self.state.rooms.iter().find(|room| room.name == info.name)
-    }
-
     /// Create a new room silently (with generated name).
     fn create_room_silent(&mut self) {
         let options = CreateRoomOptions::default();
 
-        match create_room(&self.rooms_dir, &mut self.state, options) {
+        match create_room(&self.repo_root, &self.rooms_dir, options) {
             Ok(room) => {
                 let room_name = room.name.clone();
-                let room_id = room.id;
                 let room_path = room.path.clone();
 
                 // Refresh rooms from git worktrees
@@ -837,14 +901,8 @@ impl App {
                 self.event_log.log_room_created(&room_name);
 
                 // Start post-create commands if configured
-                self.start_post_create(&room_name, room_id, room_path);
-
-                // Save state (legacy)
-                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
-                    self.status_message = Some(format!("Room created but failed to save: {}", e));
-                } else {
-                    self.status_message = Some(format!("Created room: {}", room_name));
-                }
+                self.start_post_create(&room_name, room_path);
+                self.status_message = Some(format!("Created room: {}", room_name));
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create room: {}", e));
@@ -861,10 +919,9 @@ impl App {
             ..Default::default()
         };
 
-        match create_room(&self.rooms_dir, &mut self.state, options) {
+        match create_room(&self.repo_root, &self.rooms_dir, options) {
             Ok(room) => {
                 let room_name = room.name.clone();
-                let room_id = room.id;
                 let room_path = room.path.clone();
 
                 // Refresh rooms from git worktrees
@@ -885,14 +942,8 @@ impl App {
                 self.event_log.log_room_created(&room_name);
 
                 // Start post-create commands if configured
-                self.start_post_create(&room_name, room_id, room_path);
-
-                // Save state (legacy)
-                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
-                    self.status_message = Some(format!("Room created but failed to save: {}", e));
-                } else {
-                    self.status_message = Some(format!("Created room: {}", room_name));
-                }
+                self.start_post_create(&room_name, room_path);
+                self.status_message = Some(format!("Created room: {}", room_name));
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to create room: {}", e));
@@ -902,15 +953,14 @@ impl App {
     }
 
     /// Start post-create commands for a newly created room.
-    fn start_post_create(&mut self, room_name: &str, room_id: Uuid, room_path: PathBuf) {
+    fn start_post_create(&mut self, room_name: &str, room_path: PathBuf) {
         if self.skip_post_create || self.config.post_create_commands.is_empty() {
             return;
         }
 
-        // Update room status
-        if let Some(room) = self.state.rooms.iter_mut().find(|r| r.id == room_id) {
-            room.status = RoomStatus::PostCreateRunning;
-        }
+        self.transient
+            .set_status(room_name, RoomStatus::PostCreateRunning);
+        self.refresh_rooms();
 
         // Log start
         self.event_log
@@ -918,16 +968,13 @@ impl App {
 
         // Start background execution
         let handle = run_post_create_commands(
-            room_id,
+            room_name.to_string(),
             room_path,
             self.repo_root.clone(),
             self.config.post_create_commands.clone(),
         );
 
         self.post_create_handles.push(handle);
-
-        // Save state with updated status
-        let _ = self.state.save_to_rooms_dir(&self.rooms_dir);
     }
 
     /// Poll for post-create command completion.
@@ -944,40 +991,29 @@ impl App {
         for (i, result) in completed.into_iter().rev() {
             self.post_create_handles.remove(i);
 
-            // Find the room and get its name for logging
-            let room_name = self
-                .state
-                .rooms
-                .iter()
-                .find(|r| r.id == result.room_id)
-                .map(|r| r.name.clone());
+            let room_name = result.room_name.clone();
 
-            // Update room status
-            if let Some(room) = self.state.rooms.iter_mut().find(|r| r.id == result.room_id) {
-                if result.success {
-                    room.status = RoomStatus::Ready;
-                    room.last_error = None;
-                    if let Some(name) = &room_name {
-                        self.event_log.log_post_create_completed(name);
-                    }
-                } else {
-                    room.status = RoomStatus::Error;
-                    room.last_error = result.error.clone();
-                    if let Some(name) = &room_name {
-                        self.event_log.log_post_create_failed(
-                            name,
-                            result.error.as_deref().unwrap_or("unknown error"),
-                        );
-                    }
-                    self.status_message = Some(format!(
-                        "Post-create failed: {}",
-                        result.error.unwrap_or_else(|| "unknown error".to_string())
-                    ));
-                }
+            if result.success {
+                self.transient.remove(&room_name);
+                self.event_log.log_post_create_completed(&room_name);
+            } else {
+                self.transient.set_error(
+                    &room_name,
+                    result
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "unknown error".to_string()),
+                );
+                self.event_log.log_post_create_failed(
+                    &room_name,
+                    result.error.as_deref().unwrap_or("unknown error"),
+                );
+                self.status_message = Some(format!(
+                    "Post-create failed: {}",
+                    result.error.unwrap_or_else(|| "unknown error".to_string())
+                ));
             }
-
-            // Save updated state
-            let _ = self.state.save_to_rooms_dir(&self.rooms_dir);
+            self.refresh_rooms();
         }
     }
 
@@ -1016,7 +1052,7 @@ impl App {
 
     /// Start the room deletion flow.
     fn start_room_deletion(&mut self) {
-        let room = match self.selected_room() {
+        let room = match self.selected_room_info() {
             Some(r) => r,
             None => {
                 self.status_message = Some("No room selected".to_string());
@@ -1024,9 +1060,17 @@ impl App {
             }
         };
 
+        if room.is_primary {
+            self.status_message = Some("Cannot delete the primary worktree".to_string());
+            return;
+        }
+
         let room_name = room.name.clone();
         let room_path = room.path.to_string_lossy().to_string();
-        let branch = room.branch.clone();
+        let branch = room
+            .branch
+            .clone()
+            .unwrap_or_else(|| "detached".to_string());
 
         // Check dirty status
         let dirty_status = match DirtyStatus::check(&room.path) {
@@ -1042,13 +1086,18 @@ impl App {
 
     /// Delete the currently selected room immediately without confirmation.
     fn delete_room_immediate(&mut self) {
-        let room = match self.selected_room() {
+        let room = match self.selected_room_info() {
             Some(r) => r,
             None => {
                 self.status_message = Some("No room selected".to_string());
                 return;
             }
         };
+
+        if room.is_primary {
+            self.status_message = Some("Cannot delete the primary worktree".to_string());
+            return;
+        }
 
         let room_name = room.name.clone();
         self.delete_room(&room_name);
@@ -1057,23 +1106,18 @@ impl App {
     /// Delete the room with the given name.
     fn delete_room(&mut self, room_name: &str) {
         // Use force=true since we already warned about dirty status
-        match remove_room(&mut self.state, room_name, true) {
+        match remove_room(&self.repo_root, &self.rooms_dir, room_name, true) {
             Ok(name) => {
                 // Remove PTY session if exists (keyed by room name)
                 self.sessions.remove(&name);
+                self.transient.remove(&name);
 
                 // Log the event
                 self.event_log.log_room_deleted(&name);
 
                 // Refresh rooms from git worktrees
                 self.refresh_rooms();
-
-                // Save state (legacy)
-                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
-                    self.status_message = Some(format!("Room deleted but failed to save: {}", e));
-                } else {
-                    self.status_message = Some(format!("Deleted room: {}", name));
-                }
+                self.status_message = Some(format!("Deleted room: {}", name));
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to delete room: {}", e));
@@ -1084,13 +1128,18 @@ impl App {
 
     /// Start the room rename flow.
     fn start_room_rename(&mut self) {
-        let room = match self.selected_room() {
+        let room = match self.selected_room_info() {
             Some(r) => r,
             None => {
                 self.status_message = Some("No room selected".to_string());
                 return;
             }
         };
+
+        if room.is_primary {
+            self.status_message = Some("Cannot rename the primary worktree".to_string());
+            return;
+        }
 
         let current_name = room.name.clone();
         self.prompt = PromptState::start_room_rename(current_name);
@@ -1104,29 +1153,18 @@ impl App {
             return;
         }
 
-        match rename_room(
-            &self.repo_root,
-            &self.rooms_dir,
-            &mut self.state,
-            old_name,
-            new_name,
-        ) {
+        match rename_room(&self.repo_root, &self.rooms_dir, old_name, new_name) {
             Ok(_) => {
                 // Remove PTY session since the working directory changed (keyed by old name)
                 self.sessions.remove(old_name);
+                self.transient.remove(old_name);
 
                 // Log the event
                 self.event_log.log_room_renamed(old_name, new_name);
 
                 // Refresh rooms from git worktrees
                 self.refresh_rooms();
-
-                // Save state (legacy)
-                if let Err(e) = self.state.save_to_rooms_dir(&self.rooms_dir) {
-                    self.status_message = Some(format!("Room renamed but failed to save: {}", e));
-                } else {
-                    self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
-                }
+                self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to rename room: {}", e));
@@ -1147,6 +1185,7 @@ impl App {
             match PtySession::new(cols, rows, &room_path) {
                 Ok(session) => {
                     entry.insert(session);
+                    self.sort_rooms_for_sidebar();
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Failed to start shell: {}", e));
@@ -1195,5 +1234,18 @@ impl App {
 
         // Show cursor when PTY wants it visible.
         !screen.hide_cursor()
+    }
+}
+
+fn room_section_rank_with_active(
+    room: &RoomInfo,
+    active_rooms: &std::collections::HashSet<String>,
+) -> u8 {
+    if room.is_prunable || matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) {
+        2
+    } else if active_rooms.contains(&room.name) {
+        0
+    } else {
+        1
     }
 }

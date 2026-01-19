@@ -72,6 +72,16 @@ pub fn list_worktrees_from<P: AsRef<std::path::Path>>(
     Ok(parse_porcelain_output(&result.stdout))
 }
 
+/// Prune stale worktree entries in the repository.
+pub fn prune_worktrees_from<P: AsRef<std::path::Path>>(repo_path: P) -> Result<(), CommandError> {
+    GitCommand::new("worktree")
+        .args(&["prune"])
+        .current_dir(repo_path)
+        .run_checked()?;
+
+    Ok(())
+}
+
 /// Parse the porcelain output from `git worktree list --porcelain`.
 ///
 /// Format:
@@ -216,6 +226,23 @@ branch refs/heads/feature-x
 
         assert_eq!(worktrees.len(), 1);
         assert_eq!(worktrees[0].path, PathBuf::from("/home/user/repo"));
+    }
+
+    #[test]
+    fn test_prune_worktrees_from_repo() {
+        use std::process::Command;
+
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let repo_path = temp_dir.path();
+
+        Command::new("git")
+            .args(["init"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+
+        let result = prune_worktrees_from(repo_path);
+        assert!(result.is_ok());
     }
 
     #[test]

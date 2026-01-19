@@ -21,9 +21,9 @@ rooms [OPTIONS]
 2. If `--debug-pty`: Initialize PTY debug logging
 3. Verify current directory is within a Git repository (`git rev-parse --show-toplevel`)
 4. Load configuration from `.rooms/config.toml`
-5. Load state from `.rooms/state.json`
+5. Detect primary worktree path (`git rev-parse --path-format=absolute --git-common-dir`, trim `/.git`)
 6. Discover existing worktrees via `git worktree list --porcelain`
-7. Validate room paths (mark missing as Orphaned)
+7. Merge transient in-memory status into discovered worktrees
 8. Launch TUI
 
 ## Exit Codes

@@ -60,6 +60,9 @@ pub struct RoomInfo {
 
     /// Last error message if status is Error.
     pub last_error: Option<String>,
+
+    /// Whether this worktree is the primary worktree.
+    pub is_primary: bool,
 }
 
 impl RoomInfo {
@@ -93,6 +96,7 @@ impl From<&Worktree> for RoomInfo {
             status,
             is_prunable: worktree.is_prunable(),
             last_error: None,
+            is_primary: false,
         }
     }
 }
@@ -123,6 +127,7 @@ mod tests {
         assert_eq!(room_info.status, RoomStatus::Ready);
         assert!(!room_info.is_prunable);
         assert!(room_info.last_error.is_none());
+        assert!(!room_info.is_primary);
     }
 
     #[test]
@@ -159,6 +164,7 @@ mod tests {
         assert_eq!(room_info.name, "detached-wt");
         assert_eq!(room_info.branch, None);
         assert_eq!(room_info.status, RoomStatus::Ready);
+        assert!(!room_info.is_primary);
     }
 
     #[test]
@@ -170,6 +176,7 @@ mod tests {
             status: RoomStatus::Ready,
             is_prunable: false,
             last_error: None,
+            is_primary: false,
         };
 
         room_info.set_error("something went wrong".to_string());
@@ -190,6 +197,7 @@ mod tests {
             status: RoomStatus::Error,
             is_prunable: false,
             last_error: Some("previous error".to_string()),
+            is_primary: false,
         };
 
         room_info.set_ready();

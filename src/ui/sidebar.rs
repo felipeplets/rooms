@@ -5,9 +5,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::state::RoomStatus;
+use crate::room::{RoomInfo, RoomStatus};
 
-use super::app::{App, Focus};
+use super::app::{App, Focus, RoomSection};
+
+const PRUNABLE_LABEL: &str = " [prunable]";
+const ERROR_LABEL: &str = " [error]";
 
 /// Truncate a string to fit within max_width, adding ellipsis if needed.
 /// Uses unicode width to handle multi-byte characters correctly.
@@ -59,7 +62,7 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    if app.state.rooms.is_empty() {
+    if app.rooms.is_empty() {
         // Show empty state
         let empty_msg = vec![
             Line::from(""),
@@ -87,71 +90,106 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     const STATUS_PREFIX_WIDTH: usize = 2;
     // Branch indicator "  └─ " takes 5 characters
     const BRANCH_PREFIX_WIDTH: usize = 5;
+    const PRIMARY_LABEL: &str = " [primary]";
 
-    let room_name_max_width = content_width.saturating_sub(STATUS_PREFIX_WIDTH);
-    let branch_name_max_width = content_width.saturating_sub(BRANCH_PREFIX_WIDTH);
     let left_pad = " ".repeat(ITEM_PADDING as usize);
     let right_pad = " ".repeat(ITEM_PADDING as usize);
 
-    // Build list items
-    let items: Vec<ListItem> = app
-        .state
-        .rooms
-        .iter()
-        .enumerate()
-        .map(|(i, room)| {
-            let status_icon = status_icon(&room.status);
-            let status_color = status_color(&room.status);
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut list_state = ListState::default();
+    let mut list_index = 0;
+    let mut selected_list_index = None;
+    let mut current_section: Option<RoomSection> = None;
+    let mut has_rendered_section = false;
 
-            let is_selected = i == app.selected_index;
-            let style = if is_selected && is_focused {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_selected {
-                Style::default().fg(Color::Black).bg(Color::DarkGray)
-            } else {
-                Style::default()
-            };
+    for (i, room) in app.rooms.iter().enumerate() {
+        let section = app.room_section(room);
+        if current_section != Some(section) {
+            current_section = Some(section);
+            if has_rendered_section {
+                items.push(ListItem::new(Line::from("")));
+                list_index += 1;
+            }
+            items.push(ListItem::new(Line::from(vec![
+                Span::raw(left_pad.clone()),
+                Span::styled(
+                    section_title(section),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])));
+            items.push(ListItem::new(Line::from("")));
+            list_index += 1;
+            list_index += 1;
+            has_rendered_section = true;
+        }
 
-            // Truncate room name and branch if they exceed available width
-            let room_name = truncate_with_ellipsis(&room.name, room_name_max_width);
-            let branch_name = truncate_with_ellipsis(&room.branch, branch_name_max_width);
+        let status_icon = status_icon_for_room(room, section);
+        let status_color = status_color(&room.status);
 
-            let content = vec![
-                // Line 0: Top padding
-                Line::from(vec![
-                    Span::raw(left_pad.clone()),
-                    Span::raw(right_pad.clone()),
-                ]),
-                // Line 1: Status icon + Room name
-                Line::from(vec![
-                    Span::raw(left_pad.clone()),
-                    Span::styled(
-                        format!("{} ", status_icon),
-                        Style::default().fg(status_color),
-                    ),
-                    Span::styled(room_name, style),
-                    Span::raw(right_pad.clone()),
-                ]),
-                // Line 2: Branch indicator + Branch name
-                Line::from(vec![
-                    Span::raw(left_pad.clone()),
-                    Span::styled("  └─ ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(branch_name, Style::default().fg(Color::DarkGray)),
-                    Span::raw(right_pad.clone()),
-                ]),
-                // Line 3: Bottom padding
-                Line::from(vec![
-                    Span::raw(left_pad.clone()),
-                    Span::raw(right_pad.clone()),
-                ]),
-            ];
+        let is_selected = i == app.selected_index;
+        let style = if is_selected && is_focused {
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else if is_selected {
+            Style::default().fg(Color::Black).bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
 
-            ListItem::new(content).style(style)
-        })
-        .collect();
+        let failed_label = failed_reason_label(room);
+        let primary_label = if room.is_primary { PRIMARY_LABEL } else { "" };
+        let label_width = primary_label.width() + failed_label.width();
+        let room_name_max_width = content_width.saturating_sub(STATUS_PREFIX_WIDTH + label_width);
+        let branch_name_max_width = content_width.saturating_sub(BRANCH_PREFIX_WIDTH);
+
+        let room_name = truncate_with_ellipsis(&room.name, room_name_max_width);
+        let branch = room.branch.as_deref().unwrap_or("detached");
+        let branch_name = truncate_with_ellipsis(branch, branch_name_max_width);
+
+        let mut title_spans = vec![
+            Span::raw(left_pad.clone()),
+            Span::styled(
+                format!("{} ", status_icon),
+                Style::default().fg(status_color),
+            ),
+            Span::styled(room_name, style),
+        ];
+        if !failed_label.is_empty() {
+            title_spans.push(Span::styled(
+                failed_label,
+                Style::default().fg(Color::LightRed),
+            ));
+        }
+        if room.is_primary {
+            title_spans.push(Span::styled(
+                primary_label,
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        title_spans.push(Span::raw(right_pad.clone()));
+
+        let content = vec![
+            // Line 1: Status icon + Room name + primary label
+            Line::from(title_spans),
+            // Line 2: Branch indicator + Branch name
+            Line::from(vec![
+                Span::raw(left_pad.clone()),
+                Span::styled("  └─ ", Style::default().fg(Color::DarkGray)),
+                Span::styled(branch_name, Style::default().fg(Color::DarkGray)),
+                Span::raw(right_pad.clone()),
+            ]),
+        ];
+
+        items.push(ListItem::new(content).style(style));
+        if is_selected {
+            selected_list_index = Some(list_index);
+        }
+        list_index += 1;
+    }
 
     let list = List::new(items).highlight_style(
         Style::default()
@@ -160,16 +198,25 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
             .add_modifier(Modifier::BOLD),
     );
 
-    // We need to track selection state
-    let mut list_state = ListState::default();
-    list_state.select(Some(app.selected_index));
+    list_state.select(selected_list_index);
 
     frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
-/// Get the status icon for a room status.
-fn status_icon(status: &RoomStatus) -> &'static str {
-    match status {
+fn section_title(section: RoomSection) -> &'static str {
+    match section {
+        RoomSection::Active => "ACTIVE",
+        RoomSection::Inactive => "INACTIVE",
+        RoomSection::Failed => "FAILED",
+    }
+}
+
+fn status_icon_for_room(room: &RoomInfo, section: RoomSection) -> &'static str {
+    if section == RoomSection::Inactive && room.status == RoomStatus::Ready {
+        return "○";
+    }
+
+    match room.status {
         RoomStatus::Idle => "○",
         RoomStatus::Creating => "◐",
         RoomStatus::PostCreateRunning => "◐",
@@ -177,6 +224,20 @@ fn status_icon(status: &RoomStatus) -> &'static str {
         RoomStatus::Error => "!",
         RoomStatus::Deleting => "◐",
         RoomStatus::Orphaned => "?",
+    }
+}
+
+fn failed_reason_label(room: &RoomInfo) -> &'static str {
+    if !matches!(room.status, RoomStatus::Error | RoomStatus::Orphaned) && !room.is_prunable {
+        return "";
+    }
+
+    if room.is_prunable {
+        PRUNABLE_LABEL
+    } else if room.last_error.is_some() {
+        ERROR_LABEL
+    } else {
+        ""
     }
 }
 
@@ -196,6 +257,18 @@ fn status_color(status: &RoomStatus) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_room(name: &str, status: RoomStatus) -> RoomInfo {
+        RoomInfo {
+            name: name.to_string(),
+            branch: Some("main".to_string()),
+            path: std::path::PathBuf::from("/tmp"),
+            status,
+            is_prunable: false,
+            last_error: None,
+            is_primary: false,
+        }
+    }
 
     #[test]
     fn test_truncate_with_ellipsis_no_truncation_needed() {
@@ -221,5 +294,28 @@ mod tests {
         // Test with multi-byte characters
         assert_eq!(truncate_with_ellipsis("日本語", 4), "日…");
         assert_eq!(truncate_with_ellipsis("日本語", 6), "日本語");
+    }
+
+    #[test]
+    fn test_status_icon_inactive_ready() {
+        let room = make_room("inactive", RoomStatus::Ready);
+        let icon = status_icon_for_room(&room, RoomSection::Inactive);
+        assert_eq!(icon, "○");
+    }
+
+    #[test]
+    fn test_failed_reason_label_prunable() {
+        let mut room = make_room("failed", RoomStatus::Orphaned);
+        room.is_prunable = true;
+        let label = failed_reason_label(&room);
+        assert_eq!(label, PRUNABLE_LABEL);
+    }
+
+    #[test]
+    fn test_failed_reason_label_error() {
+        let mut room = make_room("failed", RoomStatus::Error);
+        room.last_error = Some("boom".to_string());
+        let label = failed_reason_label(&room);
+        assert_eq!(label, ERROR_LABEL);
     }
 }

@@ -29,7 +29,7 @@ pub enum DiscoveryError {
 /// This function:
 /// 1. Lists all worktrees in the repository
 /// 2. Filters to only worktrees inside the rooms directory
-/// 3. Excludes the main worktree
+/// 3. Includes the primary worktree (even if outside rooms_dir)
 /// 4. Merges in-memory transient state with discovered rooms
 /// 5. Marks prunable worktrees as Orphaned
 ///
@@ -38,6 +38,7 @@ pub enum DiscoveryError {
 ///   otherwise this function will return a `WorktreeList` error from the
 ///   underlying git command.
 /// * `rooms_dir` - Path to the rooms directory (e.g., `.rooms/`)
+/// * `primary_worktree` - Optional primary worktree path to include in results
 /// * `transient` - Transient state store for in-memory status
 ///
 /// # Returns
@@ -50,6 +51,7 @@ pub enum DiscoveryError {
 pub fn discover_rooms(
     repo_root: &Path,
     rooms_dir: &Path,
+    primary_worktree: Option<&Path>,
     transient: &TransientStateStore,
 ) -> Result<Vec<RoomInfo>, DiscoveryError> {
     // Validate that rooms_dir exists and is accessible
@@ -67,13 +69,21 @@ pub fn discover_rooms(
         .canonicalize()
         .unwrap_or_else(|_| rooms_dir.to_path_buf());
 
-    // Filter to worktrees inside rooms_dir and convert to RoomInfo
+    let primary_canonical = primary_worktree
+        .and_then(|path| path.canonicalize().ok())
+        .or_else(|| primary_worktree.map(|path| path.to_path_buf()));
+
+    // Filter to worktrees inside rooms_dir and include primary worktree
     let rooms: Vec<RoomInfo> = worktrees
         .iter()
         .filter(|wt| {
-            // Skip the main worktree
-            if wt.is_main {
-                return false;
+            let is_primary = primary_canonical
+                .as_ref()
+                .map(|primary| paths_match(&wt.path, primary))
+                .unwrap_or(false);
+
+            if is_primary {
+                return true;
             }
 
             // Check if worktree is inside rooms_dir using canonicalized paths
@@ -81,6 +91,11 @@ pub fn discover_rooms(
         })
         .map(|wt| {
             let mut room_info = RoomInfo::from(wt);
+            if let Some(primary) = primary_canonical.as_ref()
+                && paths_match(&room_info.path, primary)
+            {
+                room_info.is_primary = true;
+            }
 
             // Apply transient state if present
             if let Some(transient_state) = transient.get(&room_info.name) {
@@ -99,7 +114,7 @@ pub fn discover_rooms(
 ///
 /// Uses canonicalized paths for reliable comparison, with a fallback to
 /// starts_with comparison if canonicalization fails.
-fn is_worktree_in_rooms_dir(worktree: &Worktree, rooms_dir_canonical: &Path) -> bool {
+pub(crate) fn is_worktree_in_rooms_dir(worktree: &Worktree, rooms_dir_canonical: &Path) -> bool {
     // Try to canonicalize the worktree path
     if let Ok(wt_canonical) = worktree.path.canonicalize() {
         return wt_canonical.starts_with(rooms_dir_canonical);
@@ -119,7 +134,7 @@ fn is_worktree_in_rooms_dir(worktree: &Worktree, rooms_dir_canonical: &Path) -> 
 /// This handles:
 /// - Trailing slashes (both Unix `/` and Windows `\`)
 /// - Redundant path separators (e.g., `/path//to/dir` -> `/path/to/dir`)
-fn normalize_path_string(path: &Path) -> String {
+pub(crate) fn normalize_path_string(path: &Path) -> String {
     let path_str = path.to_string_lossy();
 
     // Replace redundant separators and normalize to forward slashes for comparison
@@ -141,6 +156,15 @@ fn normalize_path_string(path: &Path) -> String {
 
     // Remove trailing slashes
     normalized.trim_end_matches('/').to_string()
+}
+
+/// Check if two paths match, using canonicalized comparison when available.
+fn paths_match(path: &Path, other: &Path) -> bool {
+    if let (Ok(path_canonical), Ok(other_canonical)) = (path.canonicalize(), other.canonicalize()) {
+        return path_canonical == other_canonical;
+    }
+
+    normalize_path_string(path) == normalize_path_string(other)
 }
 
 #[cfg(test)]
@@ -301,7 +325,7 @@ mod tests {
         let rooms_dir = PathBuf::from("/this/path/definitely/does/not/exist/rooms");
         let transient = TransientStateStore::new();
 
-        let result = discover_rooms(&repo_root, &rooms_dir, &transient);
+        let result = discover_rooms(&repo_root, &rooms_dir, None, &transient);
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -318,11 +342,12 @@ mod tests {
         let rooms_dir = repo.create_rooms_dir();
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert!(rooms.is_empty());
+        assert_eq!(rooms.len(), 1);
+        assert!(rooms[0].is_primary);
     }
 
     #[test]
@@ -332,14 +357,15 @@ mod tests {
         repo.add_worktree(&rooms_dir, "test-room");
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "test-room");
-        assert_eq!(rooms[0].branch, Some("test-room".to_string()));
-        assert_eq!(rooms[0].status, RoomStatus::Ready);
+        assert_eq!(rooms.len(), 2);
+        assert!(rooms.iter().any(|room| room.is_primary));
+        let room = rooms.iter().find(|room| room.name == "test-room").unwrap();
+        assert_eq!(room.branch, Some("test-room".to_string()));
+        assert_eq!(room.status, RoomStatus::Ready);
     }
 
     #[test]
@@ -352,14 +378,17 @@ mod tests {
         let mut transient = TransientStateStore::new();
         transient.set_status("creating-room", RoomStatus::Creating);
 
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "creating-room");
+        assert_eq!(rooms.len(), 2);
+        let room = rooms
+            .iter()
+            .find(|room| room.name == "creating-room")
+            .unwrap();
         // Transient status should override the default Ready status
-        assert_eq!(rooms[0].status, RoomStatus::Creating);
+        assert_eq!(room.status, RoomStatus::Creating);
     }
 
     #[test]
@@ -372,15 +401,15 @@ mod tests {
         let mut transient = TransientStateStore::new();
         transient.set_error("error-room", "Post-create command failed".to_string());
 
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "error-room");
-        assert_eq!(rooms[0].status, RoomStatus::Error);
+        assert_eq!(rooms.len(), 2);
+        let room = rooms.iter().find(|room| room.name == "error-room").unwrap();
+        assert_eq!(room.status, RoomStatus::Error);
         assert_eq!(
-            rooms[0].last_error,
+            room.last_error,
             Some("Post-create command failed".to_string())
         );
     }
@@ -394,13 +423,16 @@ mod tests {
         let mut transient = TransientStateStore::new();
         transient.set_status("deleting-room", RoomStatus::Deleting);
 
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "deleting-room");
-        assert_eq!(rooms[0].status, RoomStatus::Deleting);
+        assert_eq!(rooms.len(), 2);
+        let room = rooms
+            .iter()
+            .find(|room| room.name == "deleting-room")
+            .unwrap();
+        assert_eq!(room.status, RoomStatus::Deleting);
     }
 
     #[test]
@@ -412,13 +444,16 @@ mod tests {
         let mut transient = TransientStateStore::new();
         transient.set_status("post-create-room", RoomStatus::PostCreateRunning);
 
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "post-create-room");
-        assert_eq!(rooms[0].status, RoomStatus::PostCreateRunning);
+        assert_eq!(rooms.len(), 2);
+        let room = rooms
+            .iter()
+            .find(|room| room.name == "post-create-room")
+            .unwrap();
+        assert_eq!(room.status, RoomStatus::PostCreateRunning);
     }
 
     #[test]
@@ -431,15 +466,18 @@ mod tests {
         std::fs::remove_dir_all(&worktree_path).unwrap();
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "orphan-room");
+        assert_eq!(rooms.len(), 2);
+        let room = rooms
+            .iter()
+            .find(|room| room.name == "orphan-room")
+            .unwrap();
         // Prunable worktrees should have Orphaned status
-        assert_eq!(rooms[0].status, RoomStatus::Orphaned);
-        assert!(rooms[0].is_prunable);
+        assert_eq!(room.status, RoomStatus::Orphaned);
+        assert!(room.is_prunable);
     }
 
     #[test]
@@ -454,13 +492,14 @@ mod tests {
         repo.add_worktree(repo.path(), "outside-worktree");
 
         let transient = TransientStateStore::new();
-        let result = discover_rooms(repo.path(), &rooms_dir, &transient);
+        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
 
         assert!(result.is_ok());
         let rooms = result.unwrap();
 
         // Should only include the worktree inside rooms dir
-        assert_eq!(rooms.len(), 1);
-        assert_eq!(rooms[0].name, "inside-room");
+        assert_eq!(rooms.len(), 2);
+        assert!(rooms.iter().any(|room| room.is_primary));
+        assert!(rooms.iter().any(|room| room.name == "inside-room"));
     }
 }

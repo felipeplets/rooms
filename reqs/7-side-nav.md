@@ -11,17 +11,17 @@ The sidebar occupies the left portion of the screen:
 
 ```
 ┌─ Rooms ─────────────────────┐
-│ ● quick-fox-a1b2            │
-│   └─ feature/auth           │
+│ ACTIVE                      │
+│ ● quick-fox-a1b2 [primary]  │
+│   └─ main                   │
 │                             │
+│ INACTIVE                    │
 │ ○ calm-bear-1f2c            │
 │   └─ bugfix/session         │
 │                             │
+│ FAILED                      │
 │ ! broken-room               │
 │   └─ main                   │
-│                             │
-│ "Press 'a' to create one"   │
-│ (shown when empty)          │
 └─────────────────────────────┘
 ```
 
@@ -29,13 +29,25 @@ The sidebar occupies the left portion of the screen:
 
 Each room displays:
 1. **Status icon**: Indicates current state
-2. **Room name**: User-given or auto-generated
-3. **Branch name**: Shown on second line with tree connector (`└─`)
+2. **Room name**: Worktree directory name
+3. **Primary label**: `[primary]` when the item is the primary worktree
+4. **Branch name**: Shown on second line with tree connector (`└─`)
+5. **Failure reason**: Failed entries include a short label (e.g., `[prunable]`)
+
+### Sections
+
+The list is grouped into sections:
+- **ACTIVE**: Worktrees with an attached PTY session
+- **INACTIVE**: Worktrees without a PTY session
+- **FAILED**: Prunable or error worktrees
+
+Sections only appear if they contain at least one worktree. Worktrees within each
+section are listed alphabetically by name.
 
 ## Text Overflow
 
 When room names or branch names exceed the available sidebar width, they are truncated with an ellipsis (`…`):
-- Room names are truncated after accounting for the status icon prefix (2 characters)
+- Room names are truncated after accounting for the status icon prefix (2 characters) and any primary label
 - Branch names are truncated after accounting for the tree connector prefix (5 characters)
 - Unicode characters are handled correctly using unicode width measurements
 
@@ -51,6 +63,8 @@ When room names or branch names exceed the available sidebar width, they are tru
 | `?` | Orphaned | Dark Gray |
 | `○` | Deleting | White |
 
+Inactive ready rooms display a hollow circle (`○`) instead of a filled circle.
+
 ## Focus Indication
 
 | State | Border Color | Selection Highlight |
@@ -64,6 +78,7 @@ When room names or branch names exceed the available sidebar width, they are tru
 - Arrow keys (`j`/`k` or `↑`/`↓`) move selection
 - Selection wraps at list boundaries
 - Pressing `Enter` focuses the terminal for the selected room
+- Selecting a FAILED room does not start a shell; prunable entries trigger a worktree prune
 
 ## Empty State
 

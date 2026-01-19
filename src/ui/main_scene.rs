@@ -4,7 +4,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::app::{App, Focus};
+use super::app::{App, Focus, RoomSection};
 use crate::terminal::debug_log;
 
 /// Convert vt100 color to ratatui Color.
@@ -71,7 +71,7 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let title = if let Some(room) = app.selected_room() {
+    let title = if let Some(room) = app.selected_room_info() {
         if app.scrollback_offset > 0 {
             format!(" {} [↑{}] ", room.name, app.scrollback_offset)
         } else {
@@ -140,24 +140,38 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
         }
 
         // Note: Cursor positioning is handled in app.rs after all rendering is complete
-    } else if let Some(room) = app.selected_room() {
-        // No session yet - show info
-        let content = vec![
+    } else if let Some(room) = app.selected_room_info() {
+        let branch = room.branch.as_deref().unwrap_or("detached");
+        let mut content = vec![
             Line::from(""),
             Line::from(Span::styled(
                 format!("Room: {}", room.name),
                 Style::default().fg(Color::White),
             )),
             Line::from(Span::styled(
-                format!("Branch: {}", room.branch),
+                format!("Branch: {}", branch),
                 Style::default().fg(Color::DarkGray),
             )),
             Line::from(""),
-            Line::from(Span::styled(
+        ];
+
+        if app.room_section(room) == RoomSection::Failed {
+            let detail = if room.is_prunable {
+                "Worktree is prunable"
+            } else {
+                "Worktree is in a failed state"
+            };
+            content.push(Line::from(Span::styled(
+                detail,
+                Style::default().fg(Color::Red),
+            )));
+        } else {
+            // No session yet - show info
+            content.push(Line::from(Span::styled(
                 "Press Enter to start shell",
                 Style::default().fg(Color::Yellow),
-            )),
-        ];
+            )));
+        }
 
         let paragraph = Paragraph::new(content).alignment(Alignment::Center);
         frame.render_widget(paragraph, inner);

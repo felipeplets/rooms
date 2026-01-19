@@ -69,39 +69,21 @@ fn main() -> ExitCode {
         }
     };
 
-    let rooms_dir = config.rooms_path(&repo_root);
-
-    // Load state
-    let mut rooms_state = match state::RoomsState::load_from_rooms_dir(&rooms_dir) {
-        Ok(s) => s,
+    let primary_worktree = match git::get_primary_worktree_path_from(&repo_root) {
+        Ok(path) => path,
         Err(e) => {
-            eprintln!("warning: failed to load state, starting fresh: {e}");
-            state::RoomsState::default()
+            eprintln!("warning: failed to detect primary worktree: {e}");
+            repo_root.clone()
         }
     };
-
-    // Discover git worktrees
-    let worktrees = match git::list_worktrees_from(&repo_root) {
-        Ok(wt) => wt,
-        Err(e) => {
-            eprintln!("warning: failed to list worktrees: {e}");
-            Vec::new()
-        }
-    };
-
-    // Validate room paths (mark missing as orphaned)
-    let orphaned_count = rooms_state.validate_paths();
-    if orphaned_count > 0 {
-        eprintln!("warning: {orphaned_count} room(s) have missing worktree directories");
-    }
+    let rooms_dir = config.rooms_path(&primary_worktree);
 
     // Launch TUI
     let mut app = ui::App::new(
         repo_root,
         rooms_dir,
         config,
-        rooms_state,
-        worktrees,
+        primary_worktree,
         skip_post_create,
     );
 

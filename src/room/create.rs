@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
 use crate::git::command::{CommandError, GitCommand};
-use crate::state::{Room, RoomStatus, RoomsState};
+use crate::git::list_worktrees_from;
+use crate::room::discovery::is_worktree_in_rooms_dir;
 
 use super::naming::{generate_unique_room_name, sanitize_room_name, validate_room_name};
 
@@ -22,9 +24,17 @@ pub enum CreateRoomError {
 
     #[error("git command failed: {0}")]
     GitError(#[from] CommandError),
+}
 
-    #[error("failed to save state: {0}")]
-    StateSave(String),
+/// Information about a newly created room.
+#[derive(Debug, Clone)]
+pub struct CreatedRoom {
+    /// Room name (directory name).
+    pub name: String,
+    /// Git branch name.
+    pub branch: String,
+    /// Path to the worktree directory.
+    pub path: PathBuf,
 }
 
 /// Options for creating a new room.
@@ -42,13 +52,13 @@ pub struct CreateRoomOptions {
 
 /// Create a new room with a git worktree.
 ///
-/// Returns the created Room on success.
+/// Returns the created room info on success.
 pub fn create_room(
-    rooms_dir: &std::path::Path,
-    state: &mut RoomsState,
+    repo_root: &Path,
+    rooms_dir: &Path,
     options: CreateRoomOptions,
-) -> Result<Room, CreateRoomError> {
-    create_room_in_repo(rooms_dir, state, options, None)
+) -> Result<CreatedRoom, CreateRoomError> {
+    create_room_in_repo(repo_root, rooms_dir, options)
 }
 
 /// Create a new room with a git worktree, specifying the repository directory.
@@ -56,22 +66,23 @@ pub fn create_room(
 /// This is primarily for testing to avoid changing the current directory.
 /// If repo_dir is None, git commands will use the current directory.
 fn create_room_in_repo(
-    rooms_dir: &std::path::Path,
-    state: &mut RoomsState,
+    repo_root: &Path,
+    rooms_dir: &Path,
     options: CreateRoomOptions,
-    repo_dir: Option<&std::path::Path>,
-) -> Result<Room, CreateRoomError> {
+) -> Result<CreatedRoom, CreateRoomError> {
+    let existing_names = list_room_names(repo_root, rooms_dir)?;
+
     // Determine room name
     let name = match options.name {
         Some(n) => {
             let sanitized = sanitize_room_name(&n);
             validate_room_name(&sanitized).map_err(CreateRoomError::InvalidName)?;
-            if state.name_exists(&sanitized) {
+            if existing_names.contains(&sanitized) {
                 return Err(CreateRoomError::NameExists(sanitized));
             }
             sanitized
         }
-        None => generate_unique_room_name(|n| state.name_exists(n)),
+        None => generate_unique_room_name(|n| existing_names.contains(n)),
     };
 
     // Determine branch name (default to room name)
@@ -93,83 +104,72 @@ fn create_room_in_repo(
 
     // Create the worktree
     // First, check if the branch exists
-    let branch_exists = check_branch_exists_in_repo(&branch, repo_dir)?;
+    let branch_exists = check_branch_exists_in_repo(&branch, repo_root)?;
 
     let worktree_path_str = worktree_path.to_string_lossy().to_string();
 
     let result = if branch_exists {
         // Use existing branch
-        let mut cmd = GitCommand::new("worktree").args(&["add", &worktree_path_str, &branch]);
-        if let Some(dir) = repo_dir {
-            cmd = cmd.current_dir(dir);
-        }
-        cmd.run()
+        GitCommand::new("worktree")
+            .args(&["add", &worktree_path_str, &branch])
+            .current_dir(repo_root)
+            .run()
     } else {
         // Create new branch from base (or HEAD)
         match &options.base_branch {
             Some(base) => {
-                let mut cmd = GitCommand::new("worktree").args(&[
+                let cmd = GitCommand::new("worktree").args(&[
                     "add",
                     "-b",
                     &branch,
                     &worktree_path_str,
                     base,
                 ]);
-                if let Some(dir) = repo_dir {
-                    cmd = cmd.current_dir(dir);
-                }
-                cmd.run()
+                cmd.current_dir(repo_root).run()
             }
-            None => {
-                let mut cmd =
-                    GitCommand::new("worktree").args(&["add", "-b", &branch, &worktree_path_str]);
-                if let Some(dir) = repo_dir {
-                    cmd = cmd.current_dir(dir);
-                }
-                cmd.run()
-            }
+            None => GitCommand::new("worktree")
+                .args(&["add", "-b", &branch, &worktree_path_str])
+                .current_dir(repo_root)
+                .run(),
         }
     };
 
     match result {
-        Ok(output) if output.success() => {
-            // Create room record
-            let mut room = Room::new(name, branch, worktree_path);
-            room.status = RoomStatus::Ready;
-
-            // Add to state
-            state.add_room(room.clone());
-
-            Ok(room)
-        }
+        Ok(output) if output.success() => Ok(CreatedRoom {
+            name,
+            branch,
+            path: worktree_path,
+        }),
         Ok(output) => Err(CreateRoomError::WorktreeCreation(output.stderr)),
         Err(e) => Err(CreateRoomError::GitError(e)),
     }
 }
 
 /// Check if a branch exists in the repository.
-fn check_branch_exists(branch: &str) -> Result<bool, CommandError> {
-    check_branch_exists_in_repo(branch, None)
-}
-
-/// Check if a branch exists in the repository, optionally in a specific directory.
-fn check_branch_exists_in_repo(
-    branch: &str,
-    repo_dir: Option<&std::path::Path>,
-) -> Result<bool, CommandError> {
-    let mut cmd = GitCommand::new("rev-parse").args(&[
+fn check_branch_exists_in_repo(branch: &str, repo_dir: &Path) -> Result<bool, CommandError> {
+    let cmd = GitCommand::new("rev-parse").args(&[
         "--verify",
         "--quiet",
         &format!("refs/heads/{}", branch),
     ]);
-
-    if let Some(dir) = repo_dir {
-        cmd = cmd.current_dir(dir);
-    }
-
-    let result = cmd.run()?;
+    let result = cmd.current_dir(repo_dir).run()?;
 
     Ok(result.success())
+}
+
+fn list_room_names(repo_root: &Path, rooms_dir: &Path) -> Result<HashSet<String>, CreateRoomError> {
+    let worktrees = list_worktrees_from(repo_root)?;
+    let rooms_dir_canonical = rooms_dir
+        .canonicalize()
+        .unwrap_or_else(|_| rooms_dir.to_path_buf());
+
+    let names = worktrees
+        .iter()
+        .filter(|worktree| is_worktree_in_rooms_dir(worktree, &rooms_dir_canonical))
+        .filter_map(|worktree| worktree.name().map(|name| name.to_string()))
+        .collect();
+
+    Ok(names)
 }
 
 #[cfg(test)]
@@ -216,16 +216,14 @@ mod tests {
         let rooms_dir = repo_path.join(".rooms");
         std::fs::create_dir_all(&rooms_dir).unwrap();
 
-        let mut state = RoomsState::default();
         let options = CreateRoomOptions::default();
 
-        let result = create_room_in_repo(&rooms_dir, &mut state, options, Some(&repo_path));
+        let result = create_room_in_repo(&repo_path, &rooms_dir, options);
         assert!(result.is_ok(), "Failed to create room: {:?}", result.err());
 
         let room = result.unwrap();
         assert!(!room.name.is_empty());
         assert!(room.path.exists());
-        assert_eq!(state.rooms.len(), 1);
     }
 
     #[test]
@@ -234,13 +232,12 @@ mod tests {
         let rooms_dir = repo_path.join(".rooms");
         std::fs::create_dir_all(&rooms_dir).unwrap();
 
-        let mut state = RoomsState::default();
         let options = CreateRoomOptions {
             name: Some("my-feature".to_string()),
             ..Default::default()
         };
 
-        let result = create_room_in_repo(&rooms_dir, &mut state, options, Some(&repo_path));
+        let result = create_room_in_repo(&repo_path, &rooms_dir, options);
         assert!(result.is_ok());
 
         let room = result.unwrap();
@@ -254,21 +251,19 @@ mod tests {
         let rooms_dir = repo_path.join(".rooms");
         std::fs::create_dir_all(&rooms_dir).unwrap();
 
-        let mut state = RoomsState::default();
-
         // Create first room
         let options1 = CreateRoomOptions {
             name: Some("duplicate".to_string()),
             ..Default::default()
         };
-        create_room_in_repo(&rooms_dir, &mut state, options1, Some(&repo_path)).unwrap();
+        create_room_in_repo(&repo_path, &rooms_dir, options1).unwrap();
 
         // Try to create room with same name
         let options2 = CreateRoomOptions {
             name: Some("duplicate".to_string()),
             ..Default::default()
         };
-        let result = create_room_in_repo(&rooms_dir, &mut state, options2, Some(&repo_path));
+        let result = create_room_in_repo(&repo_path, &rooms_dir, options2);
 
         assert!(matches!(result, Err(CreateRoomError::NameExists(_))));
     }

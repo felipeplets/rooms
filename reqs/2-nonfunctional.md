@@ -9,7 +9,8 @@ The application MUST NOT collect or transmit any usage data, analytics, or telem
 The application MUST NOT make any network requests. All operations are local-only.
 
 ### REQ-NF-PRIV-3: Local Data Storage
-All configuration, state, and logs MUST be stored within the repository directory (`.rooms/`).
+All configuration and logs MUST be stored within the repository directory (`.rooms/`). No
+persistent room state file is stored.
 
 ## Safety
 
@@ -22,10 +23,7 @@ Deleting a room MUST NOT delete the associated Git branch. Only the worktree is 
 ### REQ-NF-SAFE-3: Dirty Status Warning
 Before deleting a room with uncommitted changes, the application MUST display a warning showing the modified/untracked files.
 
-### REQ-NF-SAFE-4: Atomic Writes
-State file persistence MUST use atomic writes (write to temp file, then rename) to prevent corruption.
-
-### REQ-NF-SAFE-5: No Dangerous Commands
+### REQ-NF-SAFE-4: No Dangerous Commands
 The application MUST NOT execute dangerous shell commands like `rm -rf`. Worktree removal uses Git's built-in command.
 
 ## Performance
@@ -42,10 +40,10 @@ Post-create commands and PTY output reading MUST run in separate threads.
 ## Reliability
 
 ### REQ-NF-REL-1: Orphaned Room Detection
-On startup, the application MUST validate room paths and mark missing worktrees as Orphaned.
+Prunable worktrees reported by Git MUST be surfaced as Orphaned/Failed entries in the UI.
 
 ### REQ-NF-REL-2: Error Messages
 All errors MUST include actionable messages describing what went wrong and potential remediation.
 
 ### REQ-NF-REL-3: State Recovery
-The application MUST handle missing or corrupted state files gracefully by starting with an empty state.
+The application MUST handle missing or corrupted transient status by falling back to the Git worktree list.
