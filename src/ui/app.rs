@@ -29,10 +29,13 @@ use crate::room::{
 use crate::state::{EventLog, TransientStateStore};
 use crate::terminal::PtySession;
 
+use super::clipboard::{copy_to_clipboard, paste_from_clipboard};
 use super::confirm::{ConfirmState, render_confirm};
+use super::context_menu::{ContextMenuItem, ContextMenuState};
 use super::help::render_help;
 use super::main_scene::render_main_scene;
 use super::prompt::{PromptState, render_prompt};
+use super::selection::{Selection, SelectionBounds};
 use super::sidebar::render_sidebar;
 
 /// Maximum scrollback lines for the PTY terminal.
@@ -51,6 +54,14 @@ pub enum RoomSection {
     Active,
     Inactive,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelectionMove {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 /// Application state for the TUI.
@@ -746,6 +757,10 @@ impl App {
     }
 
     fn handle_main_scene_key(&mut self, key: KeyEvent) {
+        if self.handle_selection_key(key) {
+            return;
+        }
+
         // Handle scrollback navigation keys (don't forward to PTY)
         match key.code {
             KeyCode::PageUp => {
@@ -820,17 +835,7 @@ impl App {
             _ => return,
         };
 
-        // Send input to PTY
-        // Reset scrollback when user types (they're interacting with live terminal)
-        self.scrollback_offset = 0;
-        self.prev_scrollback_offset = 0;
-        self.clear_selection();
-
-        if let Some(session) = self.current_session_mut()
-            && let Err(e) = session.write(&bytes)
-        {
-            self.status_message = Some(format!("Write error: {}", e));
-        }
+        self.write_to_pty(&bytes, true);
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -886,6 +891,8 @@ impl App {
         if self.focus != Focus::MainScene {
             return;
         }
+
+        self.clear_selection();
 
         if let Some(session) = self.current_session_mut() {
             // Send bracketed paste start sequence
@@ -1353,6 +1360,11 @@ impl App {
         let Some(position) = self.mouse_to_screen_position(mouse) else {
             return;
         };
+        if position == anchor {
+            self.selection = None;
+            self.selection_dragging = false;
+            return;
+        }
         self.selection = Some(Selection {
             start: anchor,
             end: position,
@@ -1370,11 +1382,11 @@ impl App {
             return;
         }
 
-        let menu_items = vec![
-            ContextMenuItem::Copy,
-            ContextMenuItem::Paste,
-            ContextMenuItem::Close,
-        ];
+        let mut menu_items = Vec::new();
+        if self.selection.is_some() {
+            menu_items.push(ContextMenuItem::Copy);
+        }
+        menu_items.push(ContextMenuItem::Paste);
 
         self.context_menu = Some(ContextMenuState {
             items: menu_items,
@@ -1459,10 +1471,9 @@ impl App {
                 }
             }
             ContextMenuItem::Paste => match paste_from_clipboard() {
-                Ok(text) => self.paste_text(text),
+                Ok(text) => self.handle_paste(text),
                 Err(e) => self.status_message = Some(format!("Paste failed: {}", e)),
             },
-            ContextMenuItem::Close => {}
         }
     }
 
@@ -1523,6 +1534,92 @@ impl App {
         Some((row, col))
     }
 
+    fn handle_selection_key(&mut self, key: KeyEvent) -> bool {
+        if self.focus != Focus::MainScene {
+            return false;
+        }
+
+        if key
+            .modifiers
+            .intersects(KeyModifiers::SUPER | KeyModifiers::META)
+        {
+            if let KeyCode::Char('c') = key.code {
+                if let Some(text) = self.selection_text() {
+                    match copy_to_clipboard(&text) {
+                        Ok(()) => {
+                            self.status_message = Some("Selection copied".to_string());
+                        }
+                        Err(e) => {
+                            self.status_message = Some(format!("Copy failed: {}", e));
+                        }
+                    }
+                } else {
+                    self.status_message = Some("No selection to copy".to_string());
+                }
+                return true;
+            }
+        }
+
+        if !key.modifiers.contains(KeyModifiers::SHIFT) {
+            return false;
+        }
+
+        let direction = match key.code {
+            KeyCode::Left => SelectionMove::Left,
+            KeyCode::Right => SelectionMove::Right,
+            KeyCode::Up => SelectionMove::Up,
+            KeyCode::Down => SelectionMove::Down,
+            _ => return false,
+        };
+
+        let Some(session) = self.current_session() else {
+            return true;
+        };
+        let screen = session.screen();
+        let (rows, cols) = screen.size();
+        if rows == 0 || cols == 0 {
+            return true;
+        }
+
+        let (anchor, current) = if let Some(selection) = self.selection {
+            (selection.start, selection.end)
+        } else {
+            let cursor = screen.cursor_position();
+            (cursor, cursor)
+        };
+
+        let next = move_selection_position(current, direction, rows, cols);
+        self.selection_anchor = Some(anchor);
+        self.selection = Some(Selection {
+            start: anchor,
+            end: next,
+        });
+        self.selection_dragging = true;
+        let arrow_bytes = match direction {
+            SelectionMove::Left => vec![0x1b, b'[', b'D'],
+            SelectionMove::Right => vec![0x1b, b'[', b'C'],
+            SelectionMove::Up => vec![0x1b, b'[', b'A'],
+            SelectionMove::Down => vec![0x1b, b'[', b'B'],
+        };
+        self.write_to_pty(&arrow_bytes, false);
+        true
+    }
+
+    fn write_to_pty(&mut self, bytes: &[u8], clear_selection: bool) {
+        // Reset scrollback when user types (they're interacting with live terminal)
+        self.scrollback_offset = 0;
+        self.prev_scrollback_offset = 0;
+        if clear_selection {
+            self.clear_selection();
+        }
+
+        if let Some(session) = self.current_session_mut()
+            && let Err(e) = session.write(bytes)
+        {
+            self.status_message = Some(format!("Write error: {}", e));
+        }
+    }
+
     fn context_menu_rect(&self, menu: &ContextMenuState) -> Rect {
         let label_width = menu
             .items
@@ -1576,238 +1673,59 @@ impl App {
     }
 
     fn paste_text(&mut self, text: String) {
-        if self.focus != Focus::MainScene {
-            return;
-        }
-        if let Some(session) = self.current_session_mut() {
-            let start = b"\x1b[200~";
-            let end = b"\x1b[201~";
-            let _ = session.write(start);
-            let _ = session.write(text.as_bytes());
-            if let Err(e) = session.write(end) {
-                self.status_message = Some(format!("Paste error: {}", e));
+        self.handle_paste(text);
+    }
+}
+
+fn move_selection_position(
+    current: (u16, u16),
+    direction: SelectionMove,
+    rows: u16,
+    cols: u16,
+) -> (u16, u16) {
+    if rows == 0 || cols == 0 {
+        return current;
+    }
+
+    let max_row = rows.saturating_sub(1);
+    let max_col = cols.saturating_sub(1);
+    let (mut row, mut col) = current;
+    row = row.min(max_row);
+    col = col.min(max_col);
+
+    match direction {
+        SelectionMove::Left => {
+            if col > 0 {
+                (row, col - 1)
+            } else if row > 0 {
+                (row - 1, max_col)
+            } else {
+                (row, col)
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Selection {
-    start: (u16, u16),
-    end: (u16, u16),
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SelectionBounds {
-    start_row: u16,
-    start_col: u16,
-    end_row: u16,
-    end_col: u16,
-}
-
-impl Selection {
-    fn bounds(&self) -> SelectionBounds {
-        let (row_a, col_a) = self.start;
-        let (row_b, col_b) = self.end;
-
-        if row_a < row_b || (row_a == row_b && col_a <= col_b) {
-            SelectionBounds {
-                start_row: row_a,
-                start_col: col_a,
-                end_row: row_b,
-                end_col: col_b,
-            }
-        } else {
-            SelectionBounds {
-                start_row: row_b,
-                start_col: col_b,
-                end_row: row_a,
-                end_col: col_a,
+        SelectionMove::Right => {
+            if col < max_col {
+                (row, col + 1)
+            } else if row < max_row {
+                (row + 1, 0)
+            } else {
+                (row, col)
             }
         }
-    }
-}
-
-impl SelectionBounds {
-    fn contains(&self, row: u16, col: u16) -> bool {
-        if row < self.start_row || row > self.end_row {
-            return false;
+        SelectionMove::Up => {
+            if row > 0 {
+                (row - 1, col)
+            } else {
+                (row, col)
+            }
         }
-        if self.start_row == self.end_row {
-            return col >= self.start_col && col <= self.end_col;
+        SelectionMove::Down => {
+            if row < max_row {
+                (row + 1, col)
+            } else {
+                (row, col)
+            }
         }
-        if row == self.start_row {
-            return col >= self.start_col;
-        }
-        if row == self.end_row {
-            return col <= self.end_col;
-        }
-        true
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ContextMenuItem {
-    Copy,
-    Paste,
-    Close,
-}
-
-impl ContextMenuItem {
-    fn label(self) -> &'static str {
-        match self {
-            ContextMenuItem::Copy => "Copy",
-            ContextMenuItem::Paste => "Paste",
-            ContextMenuItem::Close => "Close",
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct ContextMenuState {
-    items: Vec<ContextMenuItem>,
-    selected: usize,
-    position: (u16, u16),
-}
-
-fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use std::io::Write;
-        let mut child = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|e| e.to_string())?;
-        }
-        child.wait().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::io::Write;
-        let mut child = std::process::Command::new("clip")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|e| e.to_string())?;
-        }
-        child.wait().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        use std::io::Write;
-        let mut child = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin
-                .write_all(text.as_bytes())
-                .map_err(|e| e.to_string())?;
-        }
-        child.wait().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err("Clipboard not supported on this platform".to_string())
-}
-
-fn paste_from_clipboard() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let output = std::process::Command::new("pbpaste")
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err("Failed to read clipboard".to_string());
-        }
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let output = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Get-Clipboard"])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err("Failed to read clipboard".to_string());
-        }
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let output = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard", "-o"])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err("Failed to read clipboard".to_string());
-        }
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-
-    #[allow(unreachable_code)]
-    Err("Clipboard not supported on this platform".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_selection_bounds_ordering() {
-        let selection = Selection {
-            start: (3, 5),
-            end: (1, 2),
-        };
-        let bounds = selection.bounds();
-        assert_eq!(bounds.start_row, 1);
-        assert_eq!(bounds.start_col, 2);
-        assert_eq!(bounds.end_row, 3);
-        assert_eq!(bounds.end_col, 5);
-    }
-
-    #[test]
-    fn test_selection_bounds_contains_single_line() {
-        let bounds = SelectionBounds {
-            start_row: 2,
-            start_col: 3,
-            end_row: 2,
-            end_col: 5,
-        };
-        assert!(bounds.contains(2, 3));
-        assert!(bounds.contains(2, 5));
-        assert!(!bounds.contains(2, 6));
-        assert!(!bounds.contains(1, 3));
-    }
-
-    #[test]
-    fn test_selection_bounds_contains_multi_line() {
-        let bounds = SelectionBounds {
-            start_row: 1,
-            start_col: 4,
-            end_row: 3,
-            end_col: 2,
-        };
-        assert!(bounds.contains(1, 4));
-        assert!(bounds.contains(2, 0));
-        assert!(bounds.contains(3, 2));
-        assert!(!bounds.contains(1, 3));
-        assert!(!bounds.contains(3, 3));
     }
 }
 
