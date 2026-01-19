@@ -1542,22 +1542,21 @@ impl App {
         if key
             .modifiers
             .intersects(KeyModifiers::SUPER | KeyModifiers::META)
+            && let KeyCode::Char('c') = key.code
         {
-            if let KeyCode::Char('c') = key.code {
-                if let Some(text) = self.selection_text() {
-                    match copy_to_clipboard(&text) {
-                        Ok(()) => {
-                            self.status_message = Some("Selection copied".to_string());
-                        }
-                        Err(e) => {
-                            self.status_message = Some(format!("Copy failed: {}", e));
-                        }
+            if let Some(text) = self.selection_text() {
+                match copy_to_clipboard(&text) {
+                    Ok(()) => {
+                        self.status_message = Some("Selection copied".to_string());
                     }
-                } else {
-                    self.status_message = Some("No selection to copy".to_string());
+                    Err(e) => {
+                        self.status_message = Some(format!("Copy failed: {}", e));
+                    }
                 }
-                return true;
+            } else {
+                self.status_message = Some("No selection to copy".to_string());
             }
+            return true;
         }
 
         if !key.modifiers.contains(KeyModifiers::SHIFT) {
