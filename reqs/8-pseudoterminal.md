@@ -48,8 +48,6 @@ Users can view terminal history beyond the visible screen:
 |-----|--------|
 | `PageUp` | Scroll up by one page (screen height) |
 | `PageDown` | Scroll down by one page (screen height) |
-| `Ctrl+U` | Scroll up by half page |
-| `Ctrl+D` | Scroll down by half page |
 
 ### Behavior
 - Scrollback indicator `[↑N]` appears in title when scrolled (N = lines from bottom)
@@ -80,7 +78,6 @@ These keys are NOT forwarded to the PTY:
 - `Ctrl+b` (toggles sidebar)
 - `Ctrl+t` (toggles terminal)
 - `PageUp` / `PageDown` (scrollback navigation)
-- `Ctrl+U` / `Ctrl+D` (scrollback navigation)
 
 ### Bracketed Paste Mode
 

@@ -37,8 +37,6 @@ When terminal is focused:
 | `Ctrl+t` | Toggle terminal visibility |
 | `PageUp` | Scroll up by one page in terminal history |
 | `PageDown` | Scroll down by one page in terminal history |
-| `Ctrl+U` | Scroll up by half page in terminal history |
-| `Ctrl+D` | Scroll down by half page in terminal history |
 | Mouse Scroll Up | Scroll up 3 lines in terminal history |
 | Mouse Scroll Down | Scroll down 3 lines in terminal history |
 | All other keys | Forwarded to shell/PTY |

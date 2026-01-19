@@ -594,26 +594,6 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                // Ctrl+U: scroll up by half page
-                if let Some(session) = self.current_session() {
-                    let screen = session.screen();
-                    let (rows, _cols) = screen.size();
-                    self.scrollback_offset =
-                        (self.scrollback_offset + (rows as usize / 2)).min(SCROLLBACK_LINES);
-                }
-                return;
-            }
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                // Ctrl+D: scroll down by half page
-                if let Some(session) = self.current_session() {
-                    let screen = session.screen();
-                    let (rows, _cols) = screen.size();
-                    self.scrollback_offset =
-                        self.scrollback_offset.saturating_sub(rows as usize / 2);
-                }
-                return;
-            }
             _ => {}
         }
 
