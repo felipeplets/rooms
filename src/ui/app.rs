@@ -816,8 +816,9 @@ impl App {
                     return;
                 }
                 if is_failed {
-                    self.status_message =
-                        Some("Press D to remove the failed room entry.".to_string());
+                    self.status_message = Some(
+                        "Press D (shift+d) to remove this failed creation attempt.".to_string(),
+                    );
                     return;
                 }
                 self.start_room_deletion();
@@ -1264,6 +1265,16 @@ impl App {
     }
 
     fn update_creation_blink(&mut self) {
+        // Only update animation if there are actually rooms being created
+        let has_creating_rooms = self
+            .pending_rooms
+            .values()
+            .any(|room| matches!(room.status, PendingRoomStatus::Creating));
+
+        if !has_creating_rooms {
+            return;
+        }
+
         if self.creation_blink_tick.elapsed() < Duration::from_millis(300) {
             return;
         }
@@ -2043,12 +2054,13 @@ mod creating_room_tests {
             },
         );
 
-        // Note: retry_pending_room starts room creation which requires git repo
-        // We can't fully test the async creation, but we can verify the pending room is removed
+        // Note: retry_pending_room starts room creation which requires a git repo.
+        // We can't fully test the async creation, but we can verify the room is replaced
+        // in pending_rooms with Creating status (keeping the same count).
         let initial_count = app.pending_rooms.len();
         app.retry_pending_room("failed-room");
 
-        // The room should be removed from pending_rooms and creation initiated
+        // The room should be replaced in pending_rooms with Creating status (same count)
         assert!(app.pending_rooms.len() == initial_count);
     }
 
