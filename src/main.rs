@@ -11,6 +11,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let mut skip_hooks = false;
     let mut debug_pty = false;
+    let mut custom_rooms_dir: Option<String> = None;
 
     // Parse arguments
     let mut i = 1;
@@ -29,6 +30,15 @@ fn main() -> ExitCode {
             }
             "--debug-pty" => {
                 debug_pty = true;
+            }
+            "--rooms-dir" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("error: --rooms-dir requires a path argument");
+                    eprintln!("run 'rooms --help' for usage");
+                    return ExitCode::FAILURE;
+                }
+                custom_rooms_dir = Some(args[i].clone());
             }
             arg => {
                 eprintln!("error: unknown argument '{arg}'");
@@ -81,7 +91,11 @@ fn main() -> ExitCode {
             config::Config::default()
         }
     };
-    let rooms_dir = config.rooms_path(&primary_worktree);
+    let rooms_dir = if let Some(custom_path) = custom_rooms_dir {
+        std::path::PathBuf::from(custom_path)
+    } else {
+        config.rooms_path(&primary_worktree)
+    };
 
     // Launch TUI
     let mut app = ui::App::new(repo_root, rooms_dir, config, primary_worktree, skip_hooks);
