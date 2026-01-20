@@ -120,17 +120,23 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
                         let c = cell.contents().chars().next().unwrap_or(' ');
                         let mut fg = vt100_color_to_ratatui(cell.fgcolor(), true);
                         let mut bg = vt100_color_to_ratatui(cell.bgcolor(), false);
-                        // Many terminal apps use inverse video (swapped fg/bg) to indicate the cursor
-                        // or selections. Honoring cell.inverse() here ensures we render those correctly.
-                        if cell.inverse() {
-                            std::mem::swap(&mut fg, &mut bg);
-                        }
-                        if app.selection_contains(y as u16, x as u16) {
-                            bg = Color::DarkGray;
-                            fg = Color::White;
-                        }
+                        let is_selected = app.selection_contains(y as u16, x as u16);
 
-                        buf[(buf_x, buf_y)].set_char(c).set_fg(fg).set_bg(bg);
+                        let style = if is_selected {
+                            Style::default().fg(Color::White).bg(Color::DarkGray)
+                        } else if cell.inverse() {
+                            // When fg/bg are defaults, swapping does nothing; use REVERSED to show cursor.
+                            if fg == Color::Reset && bg == Color::Reset {
+                                Style::default().add_modifier(Modifier::REVERSED)
+                            } else {
+                                std::mem::swap(&mut fg, &mut bg);
+                                Style::default().fg(fg).bg(bg)
+                            }
+                        } else {
+                            Style::default().fg(fg).bg(bg)
+                        };
+
+                        buf[(buf_x, buf_y)].set_char(c).set_style(style);
                     } else {
                         buf[(buf_x, buf_y)]
                             .set_char(' ')
