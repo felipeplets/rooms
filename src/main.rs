@@ -24,7 +24,7 @@ fn main() -> ExitCode {
                 print_help();
                 return ExitCode::SUCCESS;
             }
-            "--no-post-create" | "--no-hooks" => {
+            "--no-hooks" => {
                 skip_hooks = true;
             }
             "--debug-pty" => {

@@ -180,4 +180,50 @@ mod tests {
         let path = config.rooms_path("/repo");
         assert_eq!(path, PathBuf::from("/"));
     }
+
+    #[test]
+    fn test_deserialize_hook_null() {
+        let json = r#"{"hooks": {"post_create": null}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.hooks.post_create.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_hook_single_string() {
+        let json = r#"{"hooks": {"post_create": "echo hello"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.hooks.post_create.len(), 1);
+        assert_eq!(config.hooks.post_create[0], "echo hello");
+    }
+
+    #[test]
+    fn test_deserialize_hook_array_of_strings() {
+        let json = r#"{"hooks": {"post_create": ["cmd1", "cmd2", "cmd3"]}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.hooks.post_create.len(), 3);
+        assert_eq!(config.hooks.post_create[0], "cmd1");
+        assert_eq!(config.hooks.post_create[1], "cmd2");
+        assert_eq!(config.hooks.post_create[2], "cmd3");
+    }
+
+    #[test]
+    fn test_deserialize_hook_empty_array() {
+        let json = r#"{"hooks": {"post_create": []}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.hooks.post_create.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_hook_invalid_type() {
+        let json = r#"{"hooks": {"post_create": 123}}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_hook_array_with_non_string() {
+        let json = r#"{"hooks": {"post_create": ["valid", 123, "also valid"]}}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
 }
