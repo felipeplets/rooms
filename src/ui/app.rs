@@ -735,14 +735,11 @@ impl App {
             KeyCode::Char('A') => {
                 self.create_room_silent();
             }
-            KeyCode::Delete => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    // Ctrl+Delete: delete without confirmation
-                    self.delete_room_immediate();
-                } else {
-                    // Delete: show confirmation dialog
-                    self.start_room_deletion();
-                }
+            KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+                self.start_room_deletion();
+            }
+            KeyCode::Char('D') => {
+                self.delete_room_immediate();
             }
             KeyCode::Char('r') => {
                 self.start_room_rename();
