@@ -62,7 +62,6 @@ rooms --help
 | `Enter` | Focus terminal |
 | `Esc` | Return to sidebar |
 | `Ctrl+b` | Toggle sidebar |
-| `Ctrl+t` | Toggle terminal |
 
 ## Development
 
