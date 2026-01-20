@@ -6,7 +6,6 @@ Keys available regardless of context:
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+t` | Toggle terminal visibility |
 
 ## Sidebar Context
 
@@ -22,8 +21,10 @@ When sidebar is focused:
 | `Enter` | Focus terminal / start PTY session for selected room |
 | `a` | Add room (interactive: prompts for name and branch) |
 | `A` | Add room (quick: auto-generated name, current branch) |
+| `d` | Delete room (shows confirmation dialog) |
 | `Delete` | Delete room (shows confirmation dialog) |
-| `Ctrl+Delete` | Delete room immediately (no confirmation dialog) |
+| `Backspace` | Delete room (shows confirmation dialog) |
+| `D` | Delete room immediately (no confirmation dialog) |
 | `r` | Rename room (prompts for new name) |
 | `Ctrl+b` | Toggle sidebar visibility |
 
@@ -34,7 +35,6 @@ When terminal is focused:
 | Key | Action |
 |-----|--------|
 | `Ctrl+b` | Focus sidebar (shows it if hidden) |
-| `Ctrl+t` | Toggle terminal visibility |
 | `PageUp` | Scroll up by one page in terminal history |
 | `PageDown` | Scroll down by one page in terminal history |
 | Mouse Scroll Up | Scroll up 3 lines in terminal history |

@@ -82,10 +82,6 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::styled("  Ctrl+b  ", Style::default().fg(Color::Yellow)),
             Span::raw("Return to sidebar"),
         ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+t  ", Style::default().fg(Color::Yellow)),
-            Span::raw("Toggle terminal visibility"),
-        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Press ? or Esc to close",

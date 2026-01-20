@@ -76,7 +76,6 @@ All keyboard input in terminal mode is translated to appropriate sequences:
 These keys are NOT forwarded to the PTY:
 - `Esc` (returns to sidebar)
 - `Ctrl+b` (toggles sidebar)
-- `Ctrl+t` (toggles terminal)
 - `PageUp` / `PageDown` (scrollback navigation)
 
 ## Selection & Context Menu
