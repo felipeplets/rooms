@@ -3,6 +3,6 @@
   "rooms_dir": "..",
   "hooks": {
     "post_create": "cargo build",
-    "post_enter": "claude --continue || claude"
+    "post_enter": "echo 'Entered room'"
   }
 }
