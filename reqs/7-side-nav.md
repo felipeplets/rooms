@@ -56,13 +56,14 @@ When room names or branch names exceed the available sidebar width, they are tru
 | Icon | Status | Color |
 |------|--------|-------|
 | `○` | Idle | White |
-| `◐` | Creating | Yellow |
+| `◌/◍` | Creating | Yellow (animated pulse) |
 | `●` | Ready | Green |
 | `!` | Error | Red |
 | `?` | Orphaned | Dark Gray |
 | `○` | Deleting | White |
 
 Inactive ready rooms display a hollow circle (`○`) instead of a filled circle.
+Creating rooms include a `Creating...` label in the list.
 
 ## Focus Indication
 

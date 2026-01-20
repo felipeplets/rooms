@@ -10,6 +10,8 @@ mod rename;
 pub use create::{CreateRoomError, CreateRoomOptions, CreatedRoom, create_room};
 pub use discovery::{DiscoveryError, discover_rooms};
 pub use model::{RoomInfo, RoomStatus};
-pub use naming::generate_room_name;
+pub use naming::{
+    generate_room_name, generate_unique_room_name, sanitize_room_name, validate_room_name,
+};
 pub use remove::{DirtyStatus, RemoveRoomError, remove_room};
 pub use rename::{RenameRoomError, rename_room};
