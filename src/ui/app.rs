@@ -1047,11 +1047,13 @@ impl App {
         }
 
         for command in commands {
-            let mut line = command.clone();
-            if !line.ends_with('\n') {
+            if command.ends_with('\n') {
+                self.write_to_pty(command.as_bytes(), false);
+            } else {
+                let mut line = command.clone();
                 line.push('\n');
+                self.write_to_pty(line.as_bytes(), false);
             }
-            self.write_to_pty(line.as_bytes(), false);
         }
     }
 
@@ -1748,4 +1750,84 @@ fn normalize_path_for_compare(path: &std::path::Path) -> String {
         normalized.pop();
     }
     normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_normalize_path_simple() {
+        let path = PathBuf::from("/home/user/repo");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_trailing_separator() {
+        let path = PathBuf::from("/home/user/repo/");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_multiple_separators() {
+        let path = PathBuf::from("/home//user///repo");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_backslashes() {
+        // Simulate Windows-style paths
+        let path_str = "C:\\Users\\user\\repo";
+        let path = std::path::Path::new(path_str);
+        let normalized = normalize_path_for_compare(path);
+        // Should normalize backslashes to forward slashes
+        assert!(!normalized.contains("\\\\"));
+    }
+
+    #[test]
+    fn test_normalize_path_mixed_separators() {
+        let path_str = "/home/user\\repo/subfolder";
+        let path = std::path::Path::new(path_str);
+        let normalized = normalize_path_for_compare(path);
+        // Should handle mixed separators
+        assert!(!normalized.contains("\\"));
+    }
+
+    #[test]
+    fn test_normalize_path_empty() {
+        let path = PathBuf::from("");
+        assert_eq!(normalize_path_for_compare(&path), "");
+    }
+
+    #[test]
+    fn test_is_primary_worktree_same_path() {
+        let path = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path);
+        assert!(is_primary_worktree(&path, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_different_path() {
+        let path1 = PathBuf::from("/home/user/repo");
+        let path2 = PathBuf::from("/home/user/other");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(!is_primary_worktree(&path1, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_with_trailing_slash() {
+        let path1 = PathBuf::from("/home/user/repo/");
+        let path2 = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(is_primary_worktree(&path1, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_with_multiple_separators() {
+        let path1 = PathBuf::from("/home//user///repo");
+        let path2 = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(is_primary_worktree(&path1, None, &normalized));
+    }
 }

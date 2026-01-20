@@ -41,8 +41,8 @@ The list is grouped into sections:
 - **INACTIVE**: Worktrees without a PTY session
 - **FAILED**: Prunable or error worktrees
 
-Sections only appear if they contain at least one worktree. Worktrees within each
-section are listed alphabetically by name.
+Sections only appear if they contain at least one worktree. Within each section,
+the primary worktree is listed first, followed by other worktrees alphabetically by name.
 
 ## Text Overflow
 
