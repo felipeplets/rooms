@@ -66,7 +66,7 @@ Use module names: `git`, `room`, `ui`, `terminal`, `config`, `state`
 PRs are squash-merged; PR title becomes the commit message.
 PR titles MUST follow conventional commit format.
 
-## Before commiting code
+## Before committing code
 - Check that format is correct using `cargo fmt --check`
 - run `cargo clippy --all-targets --all-features -- -D warnings`
 - run `cargo build --verbose`
