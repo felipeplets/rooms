@@ -58,8 +58,12 @@ pub fn render_help(frame: &mut Frame, area: Rect) {
             Span::raw("Add room (quick)"),
         ]),
         Line::from(vec![
-            Span::styled("  Del     ", Style::default().fg(Color::Yellow)),
+            Span::styled("  d       ", Style::default().fg(Color::Yellow)),
             Span::raw("Delete room"),
+        ]),
+        Line::from(vec![
+            Span::styled("  D       ", Style::default().fg(Color::Yellow)),
+            Span::raw("Delete room (no prompt)"),
         ]),
         Line::from(vec![
             Span::styled("  r       ", Style::default().fg(Color::Yellow)),
