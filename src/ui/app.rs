@@ -577,12 +577,6 @@ impl App {
                     self.sidebar_visible = true;
                     self.focus = Focus::Sidebar;
                 }
-                KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.main_scene_visible = !self.main_scene_visible;
-                    if !self.main_scene_visible {
-                        self.focus = Focus::Sidebar;
-                    }
-                }
                 _ => self.handle_main_scene_key(key),
             }
             return;
@@ -603,13 +597,6 @@ impl App {
                 // If hiding the focused panel, switch focus
                 if !self.sidebar_visible && self.focus == Focus::Sidebar {
                     self.focus = Focus::MainScene;
-                }
-                return;
-            }
-            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.main_scene_visible = !self.main_scene_visible;
-                if !self.main_scene_visible && self.focus == Focus::MainScene {
-                    self.focus = Focus::Sidebar;
                 }
                 return;
             }
