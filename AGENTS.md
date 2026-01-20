@@ -72,5 +72,5 @@ PR titles MUST follow conventional commit format.
 - run `cargo build --verbose`
 - run `cargo test --verbose`
 
-# Pull Request creation
+# Pull Request Creation
 You should either create the branch, commit the code and open a Pull request or give the summary of commands to do it to the user. 
