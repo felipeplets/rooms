@@ -118,9 +118,7 @@ jobs:
             -d '{
               "event_type": "rooms-release",
               "client_payload": {
-                "version": "${{ steps.release_info.outputs.version }}",
-                "tarball_url": "https://github.com/felipeplets/rooms/archive/refs/tags/v${{ steps.release_info.outputs.version }}.tar.gz",
-                "tag": "v${{ steps.release_info.outputs.version }}"
+                "version": "${{ steps.release_info.outputs.version }}"
               }
             }'
 
