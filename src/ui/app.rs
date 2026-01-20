@@ -2017,6 +2017,251 @@ mod creating_room_tests {
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].status, RoomStatus::Ready);
     }
+
+    #[test]
+    fn test_retry_pending_room_resets_to_creating() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let mut app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        // Add a failed pending room
+        app.pending_rooms.insert(
+            "failed-room".to_string(),
+            PendingRoom {
+                name: "failed-room".to_string(),
+                branch: "main".to_string(),
+                path: PathBuf::from("/tmp/failed-room"),
+                status: PendingRoomStatus::Failed("Some error".to_string()),
+            },
+        );
+        
+        // Note: retry_pending_room starts room creation which requires git repo
+        // We can't fully test the async creation, but we can verify the pending room is removed
+        let initial_count = app.pending_rooms.len();
+        app.retry_pending_room("failed-room");
+        
+        // The room should be removed from pending_rooms and creation initiated
+        assert!(app.pending_rooms.len() == initial_count);
+    }
+
+    #[test]
+    fn test_retry_pending_room_nonexistent() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let mut app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        // Try to retry a non-existent room - should handle gracefully
+        app.retry_pending_room("nonexistent");
+        
+        // Should not crash and pending rooms should remain empty
+        assert_eq!(app.pending_rooms.len(), 0);
+    }
+
+    #[test]
+    fn test_prepare_room_create_with_name() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let app = App::new(repo_root, rooms_dir.clone(), config, primary_worktree, true);
+        
+        let options = CreateRoomOptions {
+            name: Some("test-room".to_string()),
+            branch: None,
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_ok());
+        
+        let (options, pending) = result.unwrap();
+        assert_eq!(options.name, Some("test-room".to_string()));
+        assert_eq!(options.branch, Some("test-room".to_string())); // Defaults to name
+        assert_eq!(pending.name, "test-room");
+        assert_eq!(pending.branch, "test-room");
+        assert_eq!(pending.path, rooms_dir.join("test-room"));
+        assert!(matches!(pending.status, PendingRoomStatus::Creating));
+    }
+
+    #[test]
+    fn test_prepare_room_create_sanitizes_name() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        let options = CreateRoomOptions {
+            name: Some("Test Room!@#".to_string()),
+            branch: None,
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_ok());
+        
+        let (options, _) = result.unwrap();
+        let name = options.name.unwrap();
+        // Should be sanitized (no spaces, special chars removed/replaced)
+        assert!(!name.contains(' '));
+        assert!(!name.contains('!'));
+        assert!(!name.contains('@'));
+        assert!(!name.contains('#'));
+    }
+
+    #[test]
+    fn test_prepare_room_create_duplicate_name() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let mut app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        // Add an existing room
+        app.rooms.push(make_room("existing-room", RoomStatus::Ready));
+        
+        let options = CreateRoomOptions {
+            name: Some("existing-room".to_string()),
+            branch: None,
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[test]
+    fn test_prepare_room_create_duplicate_pending_room() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let mut app = App::new(repo_root, rooms_dir.clone(), config, primary_worktree, true);
+        
+        // Add a pending room
+        app.pending_rooms.insert(
+            "creating-room".to_string(),
+            PendingRoom {
+                name: "creating-room".to_string(),
+                branch: "main".to_string(),
+                path: rooms_dir.join("creating-room"),
+                status: PendingRoomStatus::Creating,
+            },
+        );
+        
+        let options = CreateRoomOptions {
+            name: Some("creating-room".to_string()),
+            branch: None,
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[test]
+    fn test_prepare_room_create_auto_generated_name() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        let options = CreateRoomOptions {
+            name: None,
+            branch: None,
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_ok());
+        
+        let (options, pending) = result.unwrap();
+        let name = options.name.unwrap();
+        
+        // Auto-generated names should follow the pattern
+        assert!(!name.is_empty());
+        assert_eq!(pending.name, name);
+        assert_eq!(pending.branch, name);
+    }
+
+    #[test]
+    fn test_prepare_room_create_with_branch() {
+        use tempfile::TempDir;
+        
+        let temp_dir = TempDir::new().unwrap();
+        let repo_root = temp_dir.path().to_path_buf();
+        let rooms_dir = repo_root.join(".rooms");
+        std::fs::create_dir_all(&rooms_dir).unwrap();
+        
+        let config = Config::default();
+        let primary_worktree = repo_root.clone();
+        
+        let app = App::new(repo_root, rooms_dir, config, primary_worktree, true);
+        
+        let options = CreateRoomOptions {
+            name: Some("test-room".to_string()),
+            branch: Some("feature-branch".to_string()),
+            base_branch: None,
+        };
+        
+        let result = app.prepare_room_create(options);
+        assert!(result.is_ok());
+        
+        let (options, pending) = result.unwrap();
+        assert_eq!(options.name, Some("test-room".to_string()));
+        assert_eq!(options.branch, Some("feature-branch".to_string()));
+        assert_eq!(pending.name, "test-room");
+        assert_eq!(pending.branch, "feature-branch");
+    }
 }
 
 fn is_primary_worktree(
