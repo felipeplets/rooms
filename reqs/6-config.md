@@ -24,7 +24,7 @@ Hooks are strings or arrays of strings. Each string is a command sent to the roo
 
 Supported keys:
 - `post_create`: runs immediately after creating a room
-- `post_enter`: runs immediately after entering a room (including after create)
+- `post_enter`: runs when a room's PTY session is created (including after create)
 
 ## Example Configuration
 

@@ -19,7 +19,7 @@
    - Show a temporary INACTIVE entry with an animated yellow dot and `Creating...` label while creating
    - Refresh worktree list when creation completes
    - Auto-enter the new room (start PTY session)
-   - Run `post_create` hooks, then `post_enter` hooks (if configured)
+   - Run `post_create` hooks, then `post_enter` hooks on PTY creation (if configured)
 
 ### Quick Mode (Key: `A`)
 
