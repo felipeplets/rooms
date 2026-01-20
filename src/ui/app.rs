@@ -807,12 +807,15 @@ impl App {
                 let Some(room) = self.selected_room_info() else {
                     return;
                 };
-                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
-                    self.status_message =
-                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                let room_name = room.name.clone();
+                let is_failed = matches!(
+                    self.pending_room_status(room),
+                    Some(PendingRoomStatus::Failed(_))
+                );
+                if self.check_room_creating_and_notify(&room_name) {
                     return;
                 }
-                if let Some(PendingRoomStatus::Failed(_)) = self.pending_room_status(room) {
+                if is_failed {
                     self.status_message =
                         Some("Press D to remove the failed room entry.".to_string());
                     return;
@@ -823,14 +826,16 @@ impl App {
                 let Some(room) = self.selected_room_info() else {
                     return;
                 };
-                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
-                    self.status_message =
-                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                let room_name = room.name.clone();
+                let is_failed = matches!(
+                    self.pending_room_status(room),
+                    Some(PendingRoomStatus::Failed(_))
+                );
+                if self.check_room_creating_and_notify(&room_name) {
                     return;
                 }
-                if let Some(PendingRoomStatus::Failed(_)) = self.pending_room_status(room) {
-                    let name = room.name.clone();
-                    self.remove_pending_room(&name);
+                if is_failed {
+                    self.remove_pending_room(&room_name);
                     return;
                 }
                 self.delete_room_immediate();
@@ -839,9 +844,8 @@ impl App {
                 let Some(room) = self.selected_room_info() else {
                     return;
                 };
-                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
-                    self.status_message =
-                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                let room_name = room.name.clone();
+                if self.check_room_creating_and_notify(&room_name) {
                     return;
                 }
                 self.start_room_rename();
@@ -1042,11 +1046,25 @@ impl App {
             .map(|pending| &pending.status)
     }
 
+    /// Checks if a room is currently being created.
+    /// Returns true and sets a status message if the room is creating.
+    fn check_room_creating_and_notify(&mut self, room_name: &str) -> bool {
+        if let Some(pending) = self.pending_rooms.get(room_name)
+            && matches!(pending.status, PendingRoomStatus::Creating)
+        {
+            self.status_message =
+                Some("Room is still creating. Please wait for it to finish.".to_string());
+            return true;
+        }
+        false
+    }
+
     /// Create a new room silently (with generated name).
     fn create_room_silent(&mut self) {
         let options = CreateRoomOptions {
+            name: None,
+            branch: None,
             base_branch: self.config.base_branch.clone(),
-            ..Default::default()
         };
 
         match self.prepare_room_create(options) {
@@ -1065,7 +1083,6 @@ impl App {
             name: room_name,
             branch: branch_name,
             base_branch: self.config.base_branch.clone(),
-            ..Default::default()
         };
 
         match self.prepare_room_create(options) {
@@ -1211,11 +1228,13 @@ impl App {
                     self.status_message = Some(format!("Created room: {}", created.name));
                 }
                 Err(err) => {
-                    let message = format!("Failed to create room: {err}");
-                    self.status_message = Some(message.clone());
-                    self.event_log.log_error(Some(&result.room_name), &message);
+                    let error_message = err.to_string();
+                    let full_message = format!("Failed to create room: {error_message}");
+                    self.status_message = Some(full_message.clone());
+                    self.event_log
+                        .log_error(Some(&result.room_name), &full_message);
                     if let Some(pending_room) = self.pending_rooms.get_mut(&result.room_name) {
-                        pending_room.status = PendingRoomStatus::Failed(message.clone());
+                        pending_room.status = PendingRoomStatus::Failed(error_message);
                     }
                     self.refresh_rooms();
                 }
@@ -1249,7 +1268,7 @@ impl App {
             return;
         }
 
-        self.creation_blink_phase = (self.creation_blink_phase + 1) % 3;
+        self.creation_blink_phase = (self.creation_blink_phase + 1) % 2;
         self.creation_blink_tick = Instant::now();
     }
     fn run_hook_commands(&mut self, commands: &[String]) {
