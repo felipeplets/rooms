@@ -47,7 +47,7 @@ Plain text, one event per line:
 
 Hooks are executed in the PTY shell:
 - `post_create` runs after room creation (before `post_enter`)
-- `post_enter` runs when entering a room
+- `post_enter` runs when a room's PTY session is created
 
 ### Skipping
 

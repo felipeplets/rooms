@@ -1102,9 +1102,10 @@ impl App {
         }
 
         let (cols, rows) = self.calculate_pty_size();
-        if self.get_or_create_session(cols, rows).is_none() {
-            return;
-        }
+        let created_session = match self.get_or_create_session(cols, rows) {
+            Some(created) => created,
+            None => return,
+        };
 
         self.focus = Focus::MainScene;
 
@@ -1114,7 +1115,9 @@ impl App {
         if run_post_create {
             self.run_hook_commands(&post_create);
         }
-        self.run_hook_commands(&post_enter);
+        if created_session {
+            self.run_hook_commands(&post_enter);
+        }
     }
 
     fn prepare_room_create(
@@ -1455,18 +1458,20 @@ impl App {
     }
 
     /// Get or create a PTY session for the selected room.
-    pub fn get_or_create_session(&mut self, cols: u16, rows: u16) -> Option<&mut PtySession> {
+    pub fn get_or_create_session(&mut self, cols: u16, rows: u16) -> Option<bool> {
         use std::collections::hash_map::Entry;
 
         let room = self.selected_room_info()?;
         let room_name = room.name.clone();
         let room_path = room.path.clone();
+        let mut created = false;
 
         if let Entry::Vacant(entry) = self.sessions.entry(room_name.clone()) {
             match PtySession::new(cols, rows, &room_path) {
                 Ok(session) => {
                     entry.insert(session);
                     self.sort_rooms_for_sidebar();
+                    created = true;
                 }
                 Err(e) => {
                     self.status_message = Some(format!("Failed to start shell: {}", e));
@@ -1475,7 +1480,7 @@ impl App {
             }
         }
 
-        self.sessions.get_mut(&room_name)
+        Some(created)
     }
 
     /// Get the PTY session for the selected room, if it exists.
