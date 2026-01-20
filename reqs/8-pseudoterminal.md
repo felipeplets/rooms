@@ -31,6 +31,7 @@ Each room has an associated PTY session that provides an embedded terminal. The 
 - 256-color palette
 - RGB/TrueColor
 - Text attributes (bold, italic, underline, etc.)
+- Inverse video is rendered even when fg/bg are defaults (cursor visibility)
 - Cursor positioning
 - Cursor visibility
 - Scrollback navigation (1000 lines)
