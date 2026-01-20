@@ -1,12 +1,5 @@
 # Keybindings
 
-## Global Keys
-
-Keys available regardless of context:
-
-| Key | Action |
-|-----|--------|
-
 ## Sidebar Context
 
 When sidebar is focused:
