@@ -2055,12 +2055,12 @@ mod creating_room_tests {
         );
 
         // Note: retry_pending_room starts room creation which requires a git repo.
-        // We can't fully test the async creation, but we can verify the pending room is
-        // re-added to pending_rooms with Creating status (so the total count remains the same).
+        // We can't fully test the async creation, but we can verify the room is replaced
+        // in pending_rooms with Creating status (keeping the same count).
         let initial_count = app.pending_rooms.len();
         app.retry_pending_room("failed-room");
 
-        // The room should be re-added to pending_rooms with Creating status
+        // The room should be replaced in pending_rooms with Creating status (same count)
         assert!(app.pending_rooms.len() == initial_count);
     }
 
