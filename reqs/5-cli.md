@@ -13,8 +13,8 @@ rooms [OPTIONS]
 | `-h`, `--help` | Print help information |
 | `-V`, `--version` | Print version information |
 | `--no-hooks` | Skip lifecycle hooks for this session |
-| `--no-post-create` | Alias for `--no-hooks` |
 | `--debug-pty` | Enable PTY debug logging to `~/.rooms/debug.log` |
+| `--rooms-dir <PATH>` | Override default rooms directory |
 
 ## Startup Behavior
 
