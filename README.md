@@ -17,7 +17,7 @@ Terminal UI for managing Git worktrees.
 
 **No telemetry. No network calls. Everything stays local.**
 
-- All data stored in `<repo>/.rooms/`
+- All data stored locally
 - No external services contacted
 - No usage data collected
 
@@ -29,7 +29,7 @@ Terminal UI for managing Git worktrees.
 cargo install --path .
 ```
 
-### Homebrew (coming soon)
+### Homebrew
 
 ```bash
 brew install felipeplets/tap/rooms
@@ -105,10 +105,10 @@ cargo run
 
 ## Non-Goals
 
-- Remote git operations (fetch/push/pull) - use the embedded shell
+- Remote git operations (fetch/push/pull) - use the embedded shell or your preferred app
 - GitHub API integration
 - Cloud sync
-- Windows support (initial release)
+- Windows support
 
 ## License
 
