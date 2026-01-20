@@ -9,8 +9,9 @@ The application MUST NOT collect or transmit any usage data, analytics, or telem
 The application MUST NOT make any network requests. All operations are local-only.
 
 ### REQ-NF-PRIV-3: Local Data Storage
-All configuration and logs MUST be stored within the repository directory (`.rooms/`). No
-persistent room state file is stored.
+All configuration and logs MUST be stored within the repository directory. Configuration lives at
+`{primary_worktree_root}/.roomsrc.json` and logs under `.rooms/`. No persistent room state file is
+stored.
 
 ## Safety
 
@@ -35,7 +36,7 @@ The UI render loop MUST NOT block on subprocess execution. Long-running operatio
 Input events MUST be polled with a maximum 50ms timeout to ensure responsive interaction.
 
 ### REQ-NF-PERF-3: Background Operations
-Post-create commands and PTY output reading MUST run in separate threads.
+Room creation and PTY output reading MUST run in separate threads.
 
 ## Reliability
 

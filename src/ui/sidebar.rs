@@ -91,6 +91,7 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     // Branch indicator "  └─ " takes 5 characters
     const BRANCH_PREFIX_WIDTH: usize = 5;
     const PRIMARY_LABEL: &str = " [primary]";
+    const CREATING_LABEL: &str = " Creating...";
 
     let left_pad = " ".repeat(ITEM_PADDING as usize);
     let right_pad = " ".repeat(ITEM_PADDING as usize);
@@ -99,6 +100,7 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
     let mut list_state = ListState::default();
     let mut list_index = 0;
     let mut selected_list_index = None;
+    let mut selected_is_creating = false;
     let mut current_section: Option<RoomSection> = None;
     let mut has_rendered_section = false;
 
@@ -125,11 +127,22 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
             has_rendered_section = true;
         }
 
-        let status_icon = status_icon_for_room(room, section);
-        let status_color = status_color(&room.status);
+        let status_icon = if room.status == RoomStatus::Creating {
+            app.creation_pulse_glyph()
+        } else {
+            status_icon_for_room(room, section)
+        };
+        let status_color = if room.status == RoomStatus::Creating {
+            Color::Yellow
+        } else {
+            status_color(&room.status)
+        };
+        let status_style = Style::default().fg(status_color);
 
         let is_selected = i == app.selected_index;
-        let style = if is_selected && is_focused {
+        let style = if is_selected && room.status == RoomStatus::Creating {
+            Style::default().fg(Color::Gray).bg(Color::DarkGray)
+        } else if is_selected && is_focused {
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::Cyan)
@@ -142,7 +155,12 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
 
         let failed_label = failed_reason_label(room);
         let primary_label = if room.is_primary { PRIMARY_LABEL } else { "" };
-        let label_width = primary_label.width() + failed_label.width();
+        let creating_label = if room.status == RoomStatus::Creating {
+            CREATING_LABEL
+        } else {
+            ""
+        };
+        let label_width = primary_label.width() + failed_label.width() + creating_label.width();
         let room_name_min_width = 4;
         let room_name_max_width = content_width
             .saturating_sub(STATUS_PREFIX_WIDTH + label_width)
@@ -155,16 +173,19 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
 
         let mut title_spans = vec![
             Span::raw(left_pad.clone()),
-            Span::styled(
-                format!("{} ", status_icon),
-                Style::default().fg(status_color),
-            ),
+            Span::styled(format!("{} ", status_icon), status_style),
             Span::styled(room_name, style),
         ];
         if !failed_label.is_empty() {
             title_spans.push(Span::styled(
                 failed_label,
                 Style::default().fg(Color::LightRed),
+            ));
+        }
+        if room.status == RoomStatus::Creating {
+            title_spans.push(Span::styled(
+                creating_label,
+                Style::default().fg(Color::Yellow),
             ));
         }
         if room.is_primary {
@@ -190,16 +211,22 @@ pub fn render_sidebar(frame: &mut Frame, area: Rect, app: &App) {
         items.push(ListItem::new(content).style(style));
         if is_selected {
             selected_list_index = Some(list_index);
+            if room.status == RoomStatus::Creating {
+                selected_is_creating = true;
+            }
         }
         list_index += 1;
     }
 
-    let list = List::new(items).highlight_style(
+    let highlight_style = if selected_is_creating {
+        Style::default()
+    } else {
         Style::default()
             .fg(Color::Black)
             .bg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    );
+            .add_modifier(Modifier::BOLD)
+    };
+    let list = List::new(items).highlight_style(highlight_style);
 
     list_state.select(selected_list_index);
 

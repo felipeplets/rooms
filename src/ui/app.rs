@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -23,8 +25,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::config::Config;
 use crate::git::prune_worktrees_from;
 use crate::room::{
-    CreateRoomOptions, DirtyStatus, RoomInfo, RoomStatus, create_room, discover_rooms, remove_room,
-    rename_room,
+    CreateRoomError, CreateRoomOptions, CreatedRoom, DirtyStatus, RoomInfo, RoomStatus,
+    create_room, discover_rooms, generate_unique_room_name, remove_room, rename_room,
+    sanitize_room_name, validate_room_name,
 };
 use crate::state::{EventLog, TransientStateStore};
 use crate::terminal::PtySession;
@@ -62,6 +65,47 @@ enum SelectionMove {
     Right,
     Up,
     Down,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PendingRoomStatus {
+    Creating,
+    Failed(String),
+}
+
+#[derive(Debug, Clone)]
+struct PendingRoom {
+    name: String,
+    branch: String,
+    path: PathBuf,
+    status: PendingRoomStatus,
+}
+
+impl PendingRoom {
+    fn to_room_info(&self) -> RoomInfo {
+        let (status, last_error) = match &self.status {
+            PendingRoomStatus::Creating => (RoomStatus::Creating, None),
+            PendingRoomStatus::Failed(message) => (RoomStatus::Error, Some(message.clone())),
+        };
+        RoomInfo {
+            name: self.name.clone(),
+            branch: Some(self.branch.clone()),
+            path: self.path.clone(),
+            status,
+            is_prunable: false,
+            last_error,
+            is_primary: false,
+        }
+    }
+}
+
+struct CreateHandle {
+    receiver: mpsc::Receiver<CreateRoomResult>,
+}
+
+struct CreateRoomResult {
+    room_name: String,
+    result: Result<CreatedRoom, CreateRoomError>,
 }
 
 /// Application state for the TUI.
@@ -140,6 +184,18 @@ pub struct App {
 
     /// Context menu state for PTY selection.
     context_menu: Option<ContextMenuState>,
+
+    /// Rooms being created in the background.
+    pending_rooms: HashMap<String, PendingRoom>,
+
+    /// Handles for in-progress room creation tasks.
+    create_handles: Vec<CreateHandle>,
+
+    /// Animation phase for creating-room indicator.
+    creation_blink_phase: u8,
+
+    /// Last time the creating-room indicator updated.
+    creation_blink_tick: Instant,
 }
 
 impl App {
@@ -192,6 +248,10 @@ impl App {
             selection_dragging: false,
             selection_anchor: None,
             context_menu: None,
+            pending_rooms: HashMap::new(),
+            create_handles: Vec::new(),
+            creation_blink_phase: 0,
+            creation_blink_tick: Instant::now(),
         };
 
         app.sort_rooms_for_sidebar();
@@ -215,7 +275,7 @@ impl App {
             &self.transient,
         ) {
             Ok(rooms) => {
-                self.rooms = rooms;
+                self.rooms = merge_pending_rooms(rooms, &self.pending_rooms);
                 self.sort_rooms_for_sidebar();
 
                 // Restore selection if the room still exists
@@ -341,6 +401,9 @@ impl App {
                 session.process_output();
             }
 
+            self.poll_create_rooms();
+            self.update_creation_blink();
+
             // Update terminal size and resize PTY sessions if needed
             // This handles both terminal resize and layout changes (e.g., sidebar toggle)
             let size = terminal.size()?;
@@ -391,6 +454,14 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    pub fn creation_pulse_glyph(&self) -> &'static str {
+        match self.creation_blink_phase {
+            0 => "◌",
+            1 => "◍",
+            _ => "◌",
+        }
     }
 
     fn render(&self, frame: &mut ratatui::Frame) {
@@ -694,6 +765,17 @@ impl App {
                     return;
                 };
 
+                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
+                    self.status_message =
+                        Some("Room is still creating. You'll be connected when ready.".to_string());
+                    return;
+                }
+                if let Some(PendingRoomStatus::Failed(_)) = self.pending_room_status(room) {
+                    let name = room.name.clone();
+                    self.retry_pending_room(&name);
+                    return;
+                }
+
                 if self.room_section(room) == RoomSection::Failed {
                     if room.is_prunable {
                         match prune_worktrees_from(&self.repo_root) {
@@ -722,12 +804,46 @@ impl App {
                 self.create_room_silent();
             }
             KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => {
+                let Some(room) = self.selected_room_info() else {
+                    return;
+                };
+                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
+                    self.status_message =
+                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                    return;
+                }
+                if let Some(PendingRoomStatus::Failed(_)) = self.pending_room_status(room) {
+                    self.status_message =
+                        Some("Press D to remove the failed room entry.".to_string());
+                    return;
+                }
                 self.start_room_deletion();
             }
             KeyCode::Char('D') => {
+                let Some(room) = self.selected_room_info() else {
+                    return;
+                };
+                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
+                    self.status_message =
+                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                    return;
+                }
+                if let Some(PendingRoomStatus::Failed(_)) = self.pending_room_status(room) {
+                    let name = room.name.clone();
+                    self.remove_pending_room(&name);
+                    return;
+                }
                 self.delete_room_immediate();
             }
             KeyCode::Char('r') => {
+                let Some(room) = self.selected_room_info() else {
+                    return;
+                };
+                if let Some(PendingRoomStatus::Creating) = self.pending_room_status(room) {
+                    self.status_message =
+                        Some("Room is still creating. Please wait for it to finish.".to_string());
+                    return;
+                }
                 self.start_room_rename();
             }
             KeyCode::Char('R') => {
@@ -920,44 +1036,27 @@ impl App {
         self.rooms.get(self.selected_index)
     }
 
+    pub fn pending_room_status(&self, room: &RoomInfo) -> Option<&PendingRoomStatus> {
+        self.pending_rooms
+            .get(&room.name)
+            .map(|pending| &pending.status)
+    }
+
     /// Create a new room silently (with generated name).
     fn create_room_silent(&mut self) {
-        let options = CreateRoomOptions::default();
+        let options = CreateRoomOptions {
+            base_branch: self.config.base_branch.clone(),
+            ..Default::default()
+        };
 
-        match create_room(&self.repo_root, &self.rooms_dir, options) {
-            Ok(room) => {
-                let room_name = room.name.clone();
-
-                // Refresh rooms from git worktrees
-                self.refresh_rooms();
-
-                // Select the new room
-                let mut selected = false;
-                if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
-                    self.selected_index = idx;
-                    selected = true;
-                } else {
-                    // Room not found after refresh - this shouldn't happen but handle gracefully
-                    self.event_log.log_error(
-                        Some(&room_name),
-                        "Room created but not found in worktree list after refresh",
-                    );
-                }
-
-                // Log the event
-                self.event_log.log_room_created(&room_name);
-
-                // Auto-enter the new room and run hooks.
-                if selected {
-                    self.enter_selected_room(true);
-                }
-                self.status_message = Some(format!("Created room: {}", room_name));
+        match self.prepare_room_create(options) {
+            Ok((options, creating_room)) => {
+                self.start_room_creation(options, creating_room);
             }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to create room: {}", e));
-                self.event_log.log_error(None, &e.to_string());
+            Err(message) => {
+                self.status_message = Some(message);
             }
-        }
+        };
     }
 
     /// Create a new room with user-provided name and branch.
@@ -965,43 +1064,18 @@ impl App {
         let options = CreateRoomOptions {
             name: room_name,
             branch: branch_name,
+            base_branch: self.config.base_branch.clone(),
             ..Default::default()
         };
 
-        match create_room(&self.repo_root, &self.rooms_dir, options) {
-            Ok(room) => {
-                let room_name = room.name.clone();
-
-                // Refresh rooms from git worktrees
-                self.refresh_rooms();
-
-                // Select the new room
-                let mut selected = false;
-                if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
-                    self.selected_index = idx;
-                    selected = true;
-                } else {
-                    // Room not found after refresh - this shouldn't happen but handle gracefully
-                    self.event_log.log_error(
-                        Some(&room_name),
-                        "Room created but not found in worktree list after refresh",
-                    );
-                }
-
-                // Log the event
-                self.event_log.log_room_created(&room_name);
-
-                // Auto-enter the new room and run hooks.
-                if selected {
-                    self.enter_selected_room(true);
-                }
-                self.status_message = Some(format!("Created room: {}", room_name));
+        match self.prepare_room_create(options) {
+            Ok((options, creating_room)) => {
+                self.start_room_creation(options, creating_room);
             }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to create room: {}", e));
-                self.event_log.log_error(None, &e.to_string());
+            Err(message) => {
+                self.status_message = Some(message);
             }
-        }
+        };
     }
 
     fn enter_selected_room(&mut self, run_post_create: bool) {
@@ -1025,6 +1099,159 @@ impl App {
         self.run_hook_commands(&post_enter);
     }
 
+    fn prepare_room_create(
+        &self,
+        mut options: CreateRoomOptions,
+    ) -> Result<(CreateRoomOptions, PendingRoom), String> {
+        let existing_names = self
+            .rooms
+            .iter()
+            .map(|room| room.name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let creating_names = self
+            .pending_rooms
+            .keys()
+            .map(|name| name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let exists = |name: &str| existing_names.contains(name) || creating_names.contains(name);
+
+        let name = match options.name.take() {
+            Some(candidate) => {
+                let sanitized = sanitize_room_name(&candidate);
+                validate_room_name(&sanitized)
+                    .map_err(|err| format!("Invalid room name: {err}"))?;
+                if exists(&sanitized) {
+                    return Err(format!("Room '{sanitized}' already exists"));
+                }
+                sanitized
+            }
+            None => generate_unique_room_name(|name| exists(name)),
+        };
+
+        let branch = match options.branch.take() {
+            Some(candidate) => {
+                let sanitized = sanitize_room_name(&candidate);
+                validate_room_name(&sanitized)
+                    .map_err(|err| format!("Invalid branch name: {err}"))?;
+                sanitized
+            }
+            None => name.clone(),
+        };
+
+        let creating_room = PendingRoom {
+            name: name.clone(),
+            branch: branch.clone(),
+            path: self.rooms_dir.join(&name),
+            status: PendingRoomStatus::Creating,
+        };
+        options.name = Some(name);
+        options.branch = Some(branch);
+
+        Ok((options, creating_room))
+    }
+
+    fn start_room_creation(&mut self, options: CreateRoomOptions, creating_room: PendingRoom) {
+        let room_name = creating_room.name.clone();
+        if self.pending_rooms.contains_key(&room_name) {
+            self.status_message = Some(format!("Room '{room_name}' is already being created"));
+            return;
+        }
+
+        self.pending_rooms
+            .insert(creating_room.name.clone(), creating_room);
+        self.refresh_rooms();
+        if let Some(idx) = self.rooms.iter().position(|room| room.name == room_name) {
+            self.selected_index = idx;
+        }
+
+        self.status_message = Some(format!("Creating room: {room_name}"));
+
+        let (tx, rx) = mpsc::channel();
+        let repo_root = self.repo_root.clone();
+        let rooms_dir = self.rooms_dir.clone();
+        let options = options.clone();
+        let handle_room_name = room_name.clone();
+        thread::spawn(move || {
+            let result = create_room(&repo_root, &rooms_dir, options);
+            let _ = tx.send(CreateRoomResult {
+                room_name: handle_room_name,
+                result,
+            });
+        });
+
+        self.create_handles.push(CreateHandle { receiver: rx });
+    }
+
+    fn poll_create_rooms(&mut self) {
+        let mut completed = Vec::new();
+        for (index, handle) in self.create_handles.iter().enumerate() {
+            if let Ok(result) = handle.receiver.try_recv() {
+                completed.push((index, result));
+            }
+        }
+
+        for (index, result) in completed.into_iter().rev() {
+            self.create_handles.remove(index);
+
+            match result.result {
+                Ok(created) => {
+                    self.pending_rooms.remove(&result.room_name);
+                    self.event_log.log_room_created(&created.name);
+                    self.refresh_rooms();
+                    if let Some(idx) = self.rooms.iter().position(|room| room.name == created.name)
+                    {
+                        self.selected_index = idx;
+                        self.enter_selected_room(true);
+                    } else {
+                        self.event_log.log_error(
+                            Some(&created.name),
+                            "Room created but not found in worktree list after refresh",
+                        );
+                    }
+                    self.status_message = Some(format!("Created room: {}", created.name));
+                }
+                Err(err) => {
+                    let message = format!("Failed to create room: {err}");
+                    self.status_message = Some(message.clone());
+                    self.event_log.log_error(Some(&result.room_name), &message);
+                    if let Some(pending_room) = self.pending_rooms.get_mut(&result.room_name) {
+                        pending_room.status = PendingRoomStatus::Failed(message.clone());
+                    }
+                    self.refresh_rooms();
+                }
+            }
+        }
+    }
+
+    fn retry_pending_room(&mut self, room_name: &str) {
+        let Some(mut pending_room) = self.pending_rooms.remove(room_name) else {
+            return;
+        };
+
+        pending_room.status = PendingRoomStatus::Creating;
+        let options = CreateRoomOptions {
+            name: Some(pending_room.name.clone()),
+            branch: Some(pending_room.branch.clone()),
+            base_branch: self.config.base_branch.clone(),
+        };
+        self.start_room_creation(options, pending_room);
+    }
+
+    fn remove_pending_room(&mut self, room_name: &str) {
+        if self.pending_rooms.remove(room_name).is_some() {
+            self.refresh_rooms();
+            self.status_message = Some(format!("Removed failed room: {room_name}"));
+        }
+    }
+
+    fn update_creation_blink(&mut self) {
+        if self.creation_blink_tick.elapsed() < Duration::from_millis(300) {
+            return;
+        }
+
+        self.creation_blink_phase = (self.creation_blink_phase + 1) % 3;
+        self.creation_blink_tick = Instant::now();
+    }
     fn run_hook_commands(&mut self, commands: &[String]) {
         if self.skip_hooks || commands.is_empty() {
             return;
@@ -1685,6 +1912,22 @@ fn move_selection_position(
     }
 }
 
+fn merge_pending_rooms(
+    mut rooms: Vec<RoomInfo>,
+    creating_rooms: &HashMap<String, PendingRoom>,
+) -> Vec<RoomInfo> {
+    let existing: std::collections::HashSet<String> =
+        rooms.iter().map(|room| room.name.clone()).collect();
+
+    for pending_room in creating_rooms.values() {
+        if !existing.contains(&pending_room.name) {
+            rooms.push(pending_room.to_room_info());
+        }
+    }
+
+    rooms
+}
+
 fn room_section_rank_with_active(
     room: &RoomInfo,
     active_rooms: &std::collections::HashSet<String>,
@@ -1698,6 +1941,62 @@ fn room_section_rank_with_active(
         0
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod creating_room_tests {
+    use super::*;
+
+    fn make_room(name: &str, status: RoomStatus) -> RoomInfo {
+        RoomInfo {
+            name: name.to_string(),
+            branch: Some("main".to_string()),
+            path: PathBuf::from("/tmp"),
+            status,
+            is_prunable: false,
+            last_error: None,
+            is_primary: false,
+        }
+    }
+
+    #[test]
+    fn test_merge_pending_rooms_appends_missing() {
+        let rooms = vec![make_room("existing", RoomStatus::Ready)];
+        let mut creating_rooms = HashMap::new();
+        creating_rooms.insert(
+            "creating".to_string(),
+            PendingRoom {
+                name: "creating".to_string(),
+                branch: "creating".to_string(),
+                path: PathBuf::from("/tmp/creating"),
+                status: PendingRoomStatus::Creating,
+            },
+        );
+
+        let merged = merge_pending_rooms(rooms, &creating_rooms);
+        assert_eq!(merged.len(), 2);
+        let creating = merged.iter().find(|room| room.name == "creating").unwrap();
+        assert_eq!(creating.status, RoomStatus::Creating);
+    }
+
+    #[test]
+    fn test_merge_pending_rooms_skips_existing() {
+        let rooms = vec![make_room("creating", RoomStatus::Ready)];
+        let mut creating_rooms = HashMap::new();
+        creating_rooms.insert(
+            "creating".to_string(),
+            PendingRoom {
+                name: "creating".to_string(),
+                branch: "creating".to_string(),
+                path: PathBuf::from("/tmp/creating"),
+                status: PendingRoomStatus::Creating,
+            },
+        );
+
+        let merged = merge_pending_rooms(rooms, &creating_rooms);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].status, RoomStatus::Ready);
     }
 }
 

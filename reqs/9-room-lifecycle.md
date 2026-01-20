@@ -15,8 +15,9 @@
    - User can accept or specify different branch
 
 3. **Execute creation**
-   - Create worktree via git
-   - Refresh worktree list
+   - Create worktree via git in a background task
+   - Show a temporary INACTIVE entry with an animated yellow dot and `Creating...` label while creating
+   - Refresh worktree list when creation completes
    - Auto-enter the new room (start PTY session)
    - Run `post_create` hooks, then `post_enter` hooks (if configured)
 
@@ -50,15 +51,15 @@ Depending on branch state:
 
 ```
 (none) → Creating → Ready
-         Creating → Error (if git fails)
+         Creating → Error (if git fails, user can retry or remove)
 ```
 
 ## Delete Room
 
 ### Trigger
 
-- **Delete key**: Shows confirmation dialog before deleting
-- **Ctrl+Delete**: Deletes immediately without confirmation (use with caution)
+- **d**: Shows confirmation dialog before deleting
+- **D**: Deletes immediately without confirmation (use with caution)
 
 ### Confirmation Dialog
 

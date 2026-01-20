@@ -1,10 +1,10 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-use super::app::{App, Focus, RoomSection};
+use super::app::{App, Focus, PendingRoomStatus, RoomSection};
 use crate::terminal::debug_log;
 
 // UI message constants
@@ -162,6 +162,78 @@ pub fn render_main_scene(frame: &mut Frame, area: Rect, app: &App) {
             )),
             Line::from(""),
         ];
+
+        if let Some(PendingRoomStatus::Creating) = app.pending_room_status(room) {
+            let content = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Creating room...",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Room: {}", room.name),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(Span::styled(
+                    format!("Branch: {}", branch),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Initializing workspace",
+                    Style::default().fg(Color::Gray),
+                )),
+                Line::from(Span::styled(
+                    "Preparing shell",
+                    Style::default().fg(Color::Gray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "You'll be connected automatically when ready.",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let paragraph = Paragraph::new(content).alignment(Alignment::Center);
+            frame.render_widget(paragraph, inner);
+            return;
+        }
+
+        if let Some(PendingRoomStatus::Failed(error)) = app.pending_room_status(room) {
+            let content = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Room creation failed",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Room: {}", room.name),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(Span::styled(
+                    format!("Branch: {}", branch),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    error.to_string(),
+                    Style::default().fg(Color::Red),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter to retry or D to remove",
+                    Style::default().fg(Color::Yellow),
+                )),
+            ];
+
+            let paragraph = Paragraph::new(content).alignment(Alignment::Center);
+            frame.render_widget(paragraph, inner);
+            return;
+        }
 
         if app.room_section(room) == RoomSection::Failed {
             let detail = if room.is_prunable {

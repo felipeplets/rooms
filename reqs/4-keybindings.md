@@ -19,6 +19,7 @@ When sidebar is focused:
 | `Backspace` | Delete room (shows confirmation dialog) |
 | `D` | Delete room immediately (no confirmation dialog) |
 | `r` | Rename room (prompts for new name) |
+| `R` | Refresh room list |
 | `Ctrl+b` | Toggle sidebar visibility |
 
 ## Terminal Context (MainScene)
