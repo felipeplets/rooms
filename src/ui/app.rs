@@ -23,8 +23,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::config::Config;
 use crate::git::prune_worktrees_from;
 use crate::room::{
-    CreateRoomOptions, DirtyStatus, PostCreateHandle, RoomInfo, RoomStatus, create_room,
-    discover_rooms, remove_room, rename_room, run_post_create_commands,
+    CreateRoomOptions, DirtyStatus, RoomInfo, RoomStatus, create_room, discover_rooms, remove_room,
+    rename_room,
 };
 use crate::state::{EventLog, TransientStateStore};
 use crate::terminal::PtySession;
@@ -123,14 +123,11 @@ pub struct App {
     /// Last known terminal size for resize detection.
     pub last_size: (u16, u16),
 
-    /// Running post-create operations.
-    post_create_handles: Vec<PostCreateHandle>,
-
     /// Event logger.
     event_log: EventLog,
 
-    /// Whether to skip post-create commands this session.
-    skip_post_create: bool,
+    /// Whether to skip lifecycle hooks this session.
+    skip_hooks: bool,
 
     /// Active text selection in the PTY, if any.
     selection: Option<Selection>,
@@ -152,7 +149,7 @@ impl App {
         rooms_dir: PathBuf,
         config: Config,
         primary_worktree: PathBuf,
-        skip_post_create: bool,
+        skip_hooks: bool,
     ) -> Self {
         let event_log = EventLog::new(&rooms_dir);
         let transient = TransientStateStore::new();
@@ -189,9 +186,8 @@ impl App {
             scrollback_offset: 0,
             prev_scrollback_offset: 0,
             last_size: (0, 0),
-            post_create_handles: Vec::new(),
             event_log,
-            skip_post_create,
+            skip_hooks,
             selection: None,
             selection_dragging: false,
             selection_anchor: None,
@@ -248,14 +244,22 @@ impl App {
         let selected_name = self.rooms.get(self.selected_index).map(|r| r.name.clone());
         let active_rooms: std::collections::HashSet<String> =
             self.sessions.keys().cloned().collect();
+        let primary_canonical = self.primary_worktree.canonicalize().ok();
+        let primary_normalized = normalize_path_for_compare(&self.primary_worktree);
 
         self.rooms.sort_by(|a, b| {
+            let a_primary =
+                is_primary_worktree(&a.path, primary_canonical.as_deref(), &primary_normalized);
+            let b_primary =
+                is_primary_worktree(&b.path, primary_canonical.as_deref(), &primary_normalized);
             let a_key = (
                 room_section_rank_with_active(a, &active_rooms),
+                if a_primary { 0 } else { 1 },
                 a.name.to_lowercase(),
             );
             let b_key = (
                 room_section_rank_with_active(b, &active_rooms),
+                if b_primary { 0 } else { 1 },
                 b.name.to_lowercase(),
             );
             a_key.cmp(&b_key)
@@ -336,9 +340,6 @@ impl App {
             for session in self.sessions.values_mut() {
                 session.process_output();
             }
-
-            // Poll for post-create command completion
-            self.poll_post_create();
 
             // Update terminal size and resize PTY sessions if needed
             // This handles both terminal resize and layout changes (e.g., sidebar toggle)
@@ -712,9 +713,7 @@ impl App {
                 }
 
                 // Start PTY session if not already running
-                let (cols, rows) = self.calculate_pty_size();
-                self.get_or_create_session(cols, rows);
-                self.focus = Focus::MainScene;
+                self.enter_selected_room(false);
             }
             KeyCode::Char('a') => {
                 self.prompt = PromptState::start_room_creation();
@@ -928,14 +927,15 @@ impl App {
         match create_room(&self.repo_root, &self.rooms_dir, options) {
             Ok(room) => {
                 let room_name = room.name.clone();
-                let room_path = room.path.clone();
 
                 // Refresh rooms from git worktrees
                 self.refresh_rooms();
 
                 // Select the new room
+                let mut selected = false;
                 if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
                     self.selected_index = idx;
+                    selected = true;
                 } else {
                     // Room not found after refresh - this shouldn't happen but handle gracefully
                     self.event_log.log_error(
@@ -947,8 +947,10 @@ impl App {
                 // Log the event
                 self.event_log.log_room_created(&room_name);
 
-                // Start post-create commands if configured
-                self.start_post_create(&room_name, room_path);
+                // Auto-enter the new room and run hooks.
+                if selected {
+                    self.enter_selected_room(true);
+                }
                 self.status_message = Some(format!("Created room: {}", room_name));
             }
             Err(e) => {
@@ -969,14 +971,15 @@ impl App {
         match create_room(&self.repo_root, &self.rooms_dir, options) {
             Ok(room) => {
                 let room_name = room.name.clone();
-                let room_path = room.path.clone();
 
                 // Refresh rooms from git worktrees
                 self.refresh_rooms();
 
                 // Select the new room
+                let mut selected = false;
                 if let Some(idx) = self.rooms.iter().position(|r| r.name == room_name) {
                     self.selected_index = idx;
+                    selected = true;
                 } else {
                     // Room not found after refresh - this shouldn't happen but handle gracefully
                     self.event_log.log_error(
@@ -988,8 +991,10 @@ impl App {
                 // Log the event
                 self.event_log.log_room_created(&room_name);
 
-                // Start post-create commands if configured
-                self.start_post_create(&room_name, room_path);
+                // Auto-enter the new room and run hooks.
+                if selected {
+                    self.enter_selected_room(true);
+                }
                 self.status_message = Some(format!("Created room: {}", room_name));
             }
             Err(e) => {
@@ -999,68 +1004,40 @@ impl App {
         }
     }
 
-    /// Start post-create commands for a newly created room.
-    fn start_post_create(&mut self, room_name: &str, room_path: PathBuf) {
-        if self.skip_post_create || self.config.post_create_commands.is_empty() {
+    fn enter_selected_room(&mut self, run_post_create: bool) {
+        if !self.main_scene_visible {
+            self.main_scene_visible = true;
+        }
+
+        let (cols, rows) = self.calculate_pty_size();
+        if self.get_or_create_session(cols, rows).is_none() {
             return;
         }
 
-        self.transient
-            .set_status(room_name, RoomStatus::PostCreateRunning);
-        self.refresh_rooms();
+        self.focus = Focus::MainScene;
 
-        // Log start
-        self.event_log
-            .log_post_create_started(room_name, self.config.post_create_commands.len());
+        let post_create = self.config.hooks.post_create.clone();
+        let post_enter = self.config.hooks.post_enter.clone();
 
-        // Start background execution
-        let handle = run_post_create_commands(
-            room_name.to_string(),
-            room_path,
-            self.repo_root.clone(),
-            self.config.post_create_commands.clone(),
-        );
-
-        self.post_create_handles.push(handle);
+        if run_post_create {
+            self.run_hook_commands(&post_create);
+        }
+        self.run_hook_commands(&post_enter);
     }
 
-    /// Poll for post-create command completion.
-    fn poll_post_create(&mut self) {
-        let mut completed = Vec::new();
-
-        for (i, handle) in self.post_create_handles.iter().enumerate() {
-            if let Some(result) = handle.try_recv() {
-                completed.push((i, result));
-            }
+    fn run_hook_commands(&mut self, commands: &[String]) {
+        if self.skip_hooks || commands.is_empty() {
+            return;
         }
 
-        // Process completed in reverse order to preserve indices
-        for (i, result) in completed.into_iter().rev() {
-            self.post_create_handles.remove(i);
-
-            let room_name = result.room_name.clone();
-
-            if result.success {
-                self.transient.remove(&room_name);
-                self.event_log.log_post_create_completed(&room_name);
+        for command in commands {
+            if command.ends_with('\n') {
+                self.write_to_pty(command.as_bytes(), false);
             } else {
-                self.transient.set_error(
-                    &room_name,
-                    result
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "unknown error".to_string()),
-                );
-                self.event_log.log_post_create_failed(
-                    &room_name,
-                    result.error.as_deref().unwrap_or("unknown error"),
-                );
-                self.status_message = Some(format!(
-                    "Post-create failed: {}",
-                    result.error.unwrap_or_else(|| "unknown error".to_string())
-                ));
+                let mut line = command.clone();
+                line.push('\n');
+                self.write_to_pty(line.as_bytes(), false);
             }
-            self.refresh_rooms();
         }
     }
 
@@ -1721,5 +1698,120 @@ fn room_section_rank_with_active(
         0
     } else {
         1
+    }
+}
+
+fn is_primary_worktree(
+    path: &std::path::Path,
+    primary_canonical: Option<&std::path::Path>,
+    primary_normalized: &str,
+) -> bool {
+    if let Some(primary) = primary_canonical
+        && let Ok(path_canonical) = path.canonicalize()
+    {
+        return path_canonical == primary;
+    }
+
+    normalize_path_for_compare(path) == primary_normalized
+}
+
+fn normalize_path_for_compare(path: &std::path::Path) -> String {
+    let path_str = path.to_string_lossy();
+    let mut normalized = String::with_capacity(path_str.len());
+    let mut last_was_sep = false;
+    for ch in path_str.chars() {
+        let is_sep = ch == '/' || ch == '\\';
+        if is_sep {
+            if !last_was_sep {
+                normalized.push('/');
+            }
+        } else {
+            normalized.push(ch);
+        }
+        last_was_sep = is_sep;
+    }
+    if normalized.ends_with('/') {
+        normalized.pop();
+    }
+    normalized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_normalize_path_simple() {
+        let path = PathBuf::from("/home/user/repo");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_trailing_separator() {
+        let path = PathBuf::from("/home/user/repo/");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_multiple_separators() {
+        let path = PathBuf::from("/home//user///repo");
+        assert_eq!(normalize_path_for_compare(&path), "/home/user/repo");
+    }
+
+    #[test]
+    fn test_normalize_path_backslashes() {
+        // Simulate Windows-style paths
+        let path_str = "C:\\Users\\user\\repo";
+        let path = std::path::Path::new(path_str);
+        let normalized = normalize_path_for_compare(path);
+        // Should normalize backslashes to forward slashes
+        assert!(!normalized.contains("\\\\"));
+    }
+
+    #[test]
+    fn test_normalize_path_mixed_separators() {
+        let path_str = "/home/user\\repo/subfolder";
+        let path = std::path::Path::new(path_str);
+        let normalized = normalize_path_for_compare(path);
+        // Should handle mixed separators
+        assert!(!normalized.contains("\\"));
+    }
+
+    #[test]
+    fn test_normalize_path_empty() {
+        let path = PathBuf::from("");
+        assert_eq!(normalize_path_for_compare(&path), "");
+    }
+
+    #[test]
+    fn test_is_primary_worktree_same_path() {
+        let path = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path);
+        assert!(is_primary_worktree(&path, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_different_path() {
+        let path1 = PathBuf::from("/home/user/repo");
+        let path2 = PathBuf::from("/home/user/other");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(!is_primary_worktree(&path1, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_with_trailing_slash() {
+        let path1 = PathBuf::from("/home/user/repo/");
+        let path2 = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(is_primary_worktree(&path1, None, &normalized));
+    }
+
+    #[test]
+    fn test_is_primary_worktree_with_multiple_separators() {
+        let path1 = PathBuf::from("/home//user///repo");
+        let path2 = PathBuf::from("/home/user/repo");
+        let normalized = normalize_path_for_compare(&path2);
+        assert!(is_primary_worktree(&path1, None, &normalized));
     }
 }

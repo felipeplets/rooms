@@ -436,27 +436,6 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_rooms_applies_transient_state_post_create_running() {
-        let repo = TestRepo::new();
-        let rooms_dir = repo.create_rooms_dir();
-        repo.add_worktree(&rooms_dir, "post-create-room");
-
-        let mut transient = TransientStateStore::new();
-        transient.set_status("post-create-room", RoomStatus::PostCreateRunning);
-
-        let result = discover_rooms(repo.path(), &rooms_dir, Some(repo.path()), &transient);
-
-        assert!(result.is_ok());
-        let rooms = result.unwrap();
-        assert_eq!(rooms.len(), 2);
-        let room = rooms
-            .iter()
-            .find(|room| room.name == "post-create-room")
-            .unwrap();
-        assert_eq!(room.status, RoomStatus::PostCreateRunning);
-    }
-
-    #[test]
     fn test_discover_rooms_with_prunable_worktree() {
         let repo = TestRepo::new();
         let rooms_dir = repo.create_rooms_dir();

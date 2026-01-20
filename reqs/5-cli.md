@@ -12,16 +12,17 @@ rooms [OPTIONS]
 |------|-------------|
 | `-h`, `--help` | Print help information |
 | `-V`, `--version` | Print version information |
-| `--no-post-create` | Skip post-create commands for this session |
+| `--no-hooks` | Skip lifecycle hooks for this session |
 | `--debug-pty` | Enable PTY debug logging to `~/.rooms/debug.log` |
+| `--rooms-dir <PATH>` | Override default rooms directory |
 
 ## Startup Behavior
 
 1. Parse command-line arguments
 2. If `--debug-pty`: Initialize PTY debug logging
 3. Verify current directory is within a Git repository (`git rev-parse --show-toplevel`)
-4. Load configuration from `.rooms/config.toml`
-5. Detect primary worktree path (`git rev-parse --path-format=absolute --git-common-dir`, trim `/.git`)
+4. Detect primary worktree path (`git rev-parse --path-format=absolute --git-common-dir`, trim `/.git`)
+5. Load configuration from `{primary_worktree_root}/.roomsrc.json`
 6. Discover existing worktrees via `git worktree list --porcelain`
 7. Merge transient in-memory status into discovered worktrees
 8. Launch TUI

@@ -9,8 +9,9 @@ mod ui;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    let mut skip_post_create = false;
+    let mut skip_hooks = false;
     let mut debug_pty = false;
+    let mut custom_rooms_dir: Option<String> = None;
 
     // Parse arguments
     let mut i = 1;
@@ -24,11 +25,20 @@ fn main() -> ExitCode {
                 print_help();
                 return ExitCode::SUCCESS;
             }
-            "--no-post-create" => {
-                skip_post_create = true;
+            "--no-hooks" => {
+                skip_hooks = true;
             }
             "--debug-pty" => {
                 debug_pty = true;
+            }
+            "--rooms-dir" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("error: --rooms-dir requires a path argument");
+                    eprintln!("run 'rooms --help' for usage");
+                    return ExitCode::FAILURE;
+                }
+                custom_rooms_dir = Some(args[i].clone());
             }
             arg => {
                 eprintln!("error: unknown argument '{arg}'");
@@ -60,15 +70,6 @@ fn main() -> ExitCode {
         }
     };
 
-    // Load configuration
-    let config = match config::Config::load_from_repo(&repo_root) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!("warning: failed to load config, using defaults: {e}");
-            config::Config::default()
-        }
-    };
-
     let primary_worktree = match git::get_primary_worktree_path_from(&repo_root) {
         Ok(path) => path,
         Err(e) => {
@@ -81,16 +82,23 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let rooms_dir = config.rooms_path(&primary_worktree);
+
+    // Load configuration from primary worktree root
+    let config = match config::Config::load_from_primary(&primary_worktree) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("warning: failed to load config, using defaults: {e}");
+            config::Config::default()
+        }
+    };
+    let rooms_dir = if let Some(custom_path) = custom_rooms_dir {
+        std::path::PathBuf::from(custom_path)
+    } else {
+        config.rooms_path(&primary_worktree)
+    };
 
     // Launch TUI
-    let mut app = ui::App::new(
-        repo_root,
-        rooms_dir,
-        config,
-        primary_worktree,
-        skip_post_create,
-    );
+    let mut app = ui::App::new(repo_root, rooms_dir, config, primary_worktree, skip_hooks);
 
     if let Err(e) = app.run() {
         eprintln!("error: {e}");
@@ -110,7 +118,7 @@ USAGE:
 OPTIONS:
     -h, --help           Print help information
     -V, --version        Print version information
-    --no-post-create     Skip post-create commands for this session
+    --no-hooks           Skip lifecycle hooks for this session
     --debug-pty          Enable PTY debug logging to ~/.rooms/debug.log
     --rooms-dir <PATH>   Override default rooms directory
 

@@ -20,9 +20,6 @@ pub enum RoomStatus {
     /// Creating worktree/branch.
     Creating,
 
-    /// Running post-create commands.
-    PostCreateRunning,
-
     /// Terminal ready, no active background ops.
     Ready,
 
@@ -211,10 +208,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&RoomStatus::Creating).unwrap(),
             "\"creating\""
-        );
-        assert_eq!(
-            serde_json::to_string(&RoomStatus::PostCreateRunning).unwrap(),
-            "\"post_create_running\""
         );
         assert_eq!(
             serde_json::to_string(&RoomStatus::Orphaned).unwrap(),
